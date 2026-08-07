@@ -67,9 +67,22 @@ export class AgentService {
 
     // Call Gemini AI generation service
     const content = await geminiService.generatePostForPersona(
-      agent.persona.name,
-      agent.persona.domain
-    );
+
+    agent.persona.name,
+
+    agent.persona.domain,
+
+    {
+        title: `Latest ${agent.persona.domain} Development`,
+
+        summary: "Autonomous AI agent researching current technology trends.",
+
+        url: "https://news.google.com"
+    },
+
+    agent.memory.topicHistory
+
+);
 
     const newPost: AgentPost = {
       id: `post_${agentId}_${Date.now()}_${postIndex}`,

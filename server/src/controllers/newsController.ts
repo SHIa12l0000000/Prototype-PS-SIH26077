@@ -21,18 +21,32 @@ export const createNews = (req: Request, res: Response) => {
     }
 
     const created = addNewsItem({
-      title,
-      summary,
-      category: category || 'LLMs',
-      author: author || 'Community Contributor',
-      source: source || 'User Submitted',
-      url: url || 'https://techpulse.ai',
-      readTime: readTime || '3 min read',
-      sentiment: sentiment || 'Neutral',
-      impactScore: Number(impactScore) || 75,
-      aiGenerated: false,
-      tags: Array.isArray(tags) ? tags : [String(category)]
-    });
+  title,
+
+  summary,
+
+  content: summary,
+
+  category: category || 'LLMs',
+
+  author: author || 'Community Contributor',
+
+  source: source || 'User Submitted',
+
+  url: url || 'https://techpulse.ai',
+
+  readTime: readTime || '3 min read',
+
+  sentiment: sentiment || 'Neutral',
+
+  impactScore: Number(impactScore) || 75,
+
+  aiGenerated: false,
+
+  tags: Array.isArray(tags)
+    ? tags
+    : [String(category)]
+});
 
     res.status(201).json({ success: true, data: created });
   } catch (error: any) {
