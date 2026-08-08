@@ -1,26 +1,18 @@
 import Parser from "rss-parser";
 import { logger } from "../utils/logger.js";
 import { Category } from "../models/types.js";
+import { supabase } from "../config/supabase.js";
 
 export interface DiscoveredTopic {
   id: string;
-
   topic: string;
-
   category: Category;
-
   sourceVolume: number;
-
   velocityGrowth: string;
-
   keywords: string[];
-
   discoveredAt: string;
-
   source: string;
-
   url: string;
-
   summary: string;
 }
 
@@ -39,7 +31,6 @@ export class TopicDiscoveryService {
 
   /**
    * Live AI and technology sources.
-   *
    * These feeds are used for autonomous topic discovery.
    */
   private readonly feeds: FeedConfig[] = [
@@ -88,19 +79,13 @@ export class TopicDiscoveryService {
           `Reading RSS feed: ${feedSource.source}`
         );
 
-        const feed = await this.parser.parseURL(
-          feedSource.url
-        );
+        const feed = await this.parser.parseURL(feedSource.url);
 
         const items = Array.isArray(feed.items)
           ? feed.items.slice(0, 15)
           : [];
 
-        for (
-          let index = 0;
-          index < items.length;
-          index++
-        ) {
+        for (let index = 0; index < items.length; index++) {
           const item = items[index];
 
           const title = item.title?.trim();
@@ -111,9 +96,6 @@ export class TopicDiscoveryService {
 
           /**
            * Require the actual article URL.
-           *
-           * This prevents the system from publishing
-           * the RSS feed URL as the article source.
            */
           const articleUrl = item.link?.trim();
 
@@ -129,14 +111,11 @@ export class TopicDiscoveryService {
           /**
            * Duplicate detection.
            */
-          const normalizedTitle =
-            this.normalizeText(title);
+          const normalizedTitle = this.normalizeText(title);
 
           const exists = topics.some(
             (topic) =>
-              this.normalizeText(
-                topic.topic
-              ) === normalizedTitle
+              this.normalizeText(topic.topic) === normalizedTitle
           );
 
           if (exists) {
@@ -151,18 +130,14 @@ export class TopicDiscoveryService {
           /**
            * RSS categories.
            */
-          const rssKeywords =
-            Array.isArray(item.categories)
-              ? item.categories
-                  .map((category) =>
-                    String(category).trim()
-                  )
-                  .filter(Boolean)
-              : [];
+          const rssKeywords = Array.isArray(item.categories)
+            ? item.categories
+                .map((category) => String(category).trim())
+                .filter(Boolean)
+            : [];
 
           /**
-           * Detect AI/technology keywords from
-           * title and article summary.
+           * Detect AI/technology keywords.
            */
           const summary =
             this.cleanText(
@@ -170,14 +145,12 @@ export class TopicDiscoveryService {
                 item.content ||
                 item.summary ||
                 ""
-            ) ||
-            `Latest update from ${feedSource.source}.`;
+            ) || `Latest update from ${feedSource.source}.`;
 
-          const detectedKeywords =
-            this.detectKeywords(
-              title,
-              summary
-            );
+          const detectedKeywords = this.detectKeywords(
+            title,
+            summary
+          );
 
           const keywords = Array.from(
             new Set([
@@ -190,11 +163,7 @@ export class TopicDiscoveryService {
           ).slice(0, 10);
 
           /**
-           * RSS does not provide universal search
-           * volume. Therefore this is a discovery
-           * strength signal, not fake market data.
-           *
-           * Newer items receive a stronger signal.
+           * Discovery strength signal.
            */
           const sourceVolume = Math.max(
             100,
@@ -202,11 +171,7 @@ export class TopicDiscoveryService {
           );
 
           /**
-           * Discovery velocity estimate.
-           *
-           * This is deliberately labelled as an
-           * estimate because RSS does not provide
-           * Google Trends-style velocity data.
+           * Estimated discovery velocity.
            */
           const estimatedGrowth = Math.max(
             10,
@@ -214,47 +179,32 @@ export class TopicDiscoveryService {
           );
 
           /**
-           * Use the actual RSS publication date.
+           * Use actual RSS publication date.
            */
-          const discoveredAt =
-            this.getValidDate(
-              item.isoDate,
-              item.pubDate
-            );
+          const discoveredAt = this.getValidDate(
+            item.isoDate,
+            item.pubDate
+          );
 
           /**
            * Deterministic topic ID.
            */
-          const id =
-            this.createTopicId(
-              feedSource.source,
-              title,
-              articleUrl
-            );
+          const id = this.createTopicId(
+            feedSource.source,
+            title,
+            articleUrl
+          );
 
           const topic: DiscoveredTopic = {
             id,
-
             topic: title,
-
-            category:
-              feedSource.category,
-
+            category: feedSource.category,
             sourceVolume,
-
-            velocityGrowth:
-              `+${estimatedGrowth}%`,
-
+            velocityGrowth: `+${estimatedGrowth}%`,
             keywords,
-
             discoveredAt,
-
-            source:
-              feedSource.source,
-
-            url:
-              articleUrl,
-
+            source: feedSource.source,
+            url: articleUrl,
             summary,
           };
 
@@ -282,16 +232,47 @@ export class TopicDiscoveryService {
      */
     topics.sort(
       (a, b) =>
-        new Date(
-          b.discoveredAt
-        ).getTime() -
-        new Date(
-          a.discoveredAt
-        ).getTime()
+        new Date(b.discoveredAt).getTime() -
+        new Date(a.discoveredAt).getTime()
     );
 
     /**
-     * Save the latest discovery result.
+     * ============================================================
+     * SAVE DISCOVERED TOPICS TO SUPABASE
+     * ============================================================
+     */
+    if (topics.length > 0) {
+      const topicRows = topics.map((topic) => ({
+        id: topic.id,
+        topic: topic.topic,
+        category: topic.category,
+        discovered_at: topic.discoveredAt,
+      }));
+
+      const { error } = await supabase
+        .from("topics")
+        .upsert(topicRows, {
+          onConflict: "id",
+        });
+
+      if (error) {
+        logger.error(
+          `Failed to persist ${topics.length} topics to Supabase: ${error.message}`
+        );
+      } else {
+        logger.autonomous(
+          "TopicDiscovery",
+          `Persisted ${topics.length} topics to Supabase`
+        );
+      }
+    } else {
+      logger.warn(
+        "No topics discovered. Nothing to save to Supabase."
+      );
+    }
+
+    /**
+     * Keep latest discovery result in memory as well.
      */
     this.discoveredTopics = topics;
 
@@ -313,45 +294,23 @@ export class TopicDiscoveryService {
   /**
    * Normalize text for duplicate detection.
    */
-  private normalizeText(
-    text: string
-  ): string {
+  private normalizeText(text: string): string {
     return text
       .toLowerCase()
-      .replace(
-        /[^a-z0-9\s]/g,
-        " "
-      )
-      .replace(
-        /\s+/g,
-        " "
-      )
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
   /**
    * Clean RSS HTML/content.
    */
-  private cleanText(
-    text: string
-  ): string {
+  private cleanText(text: string): string {
     return text
-      .replace(
-        /<[^>]*>/g,
-        " "
-      )
-      .replace(
-        /&nbsp;/gi,
-        " "
-      )
-      .replace(
-        /&amp;/gi,
-        "&"
-      )
-      .replace(
-        /\s+/g,
-        " "
-      )
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/\s+/g, " ")
       .trim()
       .slice(0, 1200);
   }
@@ -363,10 +322,7 @@ export class TopicDiscoveryService {
     isoDate?: string,
     pubDate?: string
   ): string {
-    const candidates = [
-      isoDate,
-      pubDate,
-    ];
+    const candidates = [isoDate, pubDate];
 
     for (const candidate of candidates) {
       if (!candidate) {
@@ -390,88 +346,42 @@ export class TopicDiscoveryService {
     title: string,
     summary: string
   ): string[] {
-    const text =
-      `${title} ${summary}`.toLowerCase();
+    const text = `${title} ${summary}`.toLowerCase();
 
-    const keywordMap: Record<
-      string,
-      string
-    > = {
-      "large language model":
-        "LLMs",
-
+    const keywordMap: Record<string, string> = {
+      "large language model": "LLMs",
       llm: "LLMs",
-
       model: "AI Models",
-
       agent: "AI Agents",
-
       agents: "AI Agents",
-
       reasoning: "Reasoning",
-
       inference: "Inference",
-
       multimodal: "Multimodal",
-
       robotics: "Robotics",
-
       robot: "Robotics",
-
       gpu: "GPU",
-
       nvidia: "NVIDIA",
-
       openai: "OpenAI",
-
       anthropic: "Anthropic",
-
       gemini: "Gemini",
-
       deepseek: "DeepSeek",
-
-      "hugging face":
-        "Hugging Face",
-
+      "hugging face": "Hugging Face",
       mcp: "MCP",
-
-      "machine learning":
-        "Machine Learning",
-
-      "computer vision":
-        "Computer Vision",
-
-      security:
-        "AI Security",
-
-      safety:
-        "AI Safety",
-
-      benchmark:
-        "Benchmarks",
-
-      "open source":
-        "Open Source",
-
-      "open-source":
-        "Open Source",
+      "machine learning": "Machine Learning",
+      "computer vision": "Computer Vision",
+      security: "AI Security",
+      safety: "AI Safety",
+      benchmark: "Benchmarks",
+      "open source": "Open Source",
+      "open-source": "Open Source",
     };
 
     const matches: string[] = [];
 
-    for (
-      const [
-        searchTerm,
-        label,
-      ] of Object.entries(
-        keywordMap
-      )
-    ) {
-      if (
-        text.includes(
-          searchTerm
-        )
-      ) {
+    for (const [searchTerm, label] of Object.entries(
+      keywordMap
+    )) {
+      if (text.includes(searchTerm)) {
         matches.push(label);
       }
     }
@@ -480,24 +390,18 @@ export class TopicDiscoveryService {
   }
 
   /**
-   * Generate a deterministic ID from
-   * source + title + URL.
+   * Generate a deterministic ID from source + title + URL.
    */
   private createTopicId(
     source: string,
     title: string,
     url: string
   ): string {
-    const raw =
-      `${source}|${title}|${url}`;
+    const raw = `${source}|${title}|${url}`;
 
     let hash = 0;
 
-    for (
-      let index = 0;
-      index < raw.length;
-      index++
-    ) {
+    for (let index = 0; index < raw.length; index++) {
       hash =
         (hash << 5) -
         hash +
