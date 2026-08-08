@@ -17,12 +17,10 @@ export interface DiscoveredTopic {
 
   discoveredAt: string;
 
-  // Real source information
   source: string;
 
   url: string;
 
-  // Original RSS description/content
   summary: string;
 }
 
@@ -35,6 +33,15 @@ interface FeedConfig {
 export class TopicDiscoveryService {
   private discoveredTopics: DiscoveredTopic[] = [];
 
+  private readonly parser = new Parser({
+    timeout: 10000,
+  });
+
+  /**
+   * Live AI and technology sources.
+   *
+   * These feeds are used for autonomous topic discovery.
+   */
   private readonly feeds: FeedConfig[] = [
     {
       url: "https://openai.com/news/rss.xml",
@@ -51,15 +58,26 @@ export class TopicDiscoveryService {
       category: "Multimodal",
       source: "Google AI",
     },
+    {
+      url: "https://deepmind.google/blog/rss.xml",
+      category: "Research",
+      source: "Google DeepMind",
+    },
+    {
+      url: "https://www.anthropic.com/news/rss.xml",
+      category: "LLMs",
+      source: "Anthropic",
+    },
   ];
 
+  /**
+   * Discover live AI and technology topics.
+   */
   public async scanTrendingTopics(): Promise<DiscoveredTopic[]> {
     logger.autonomous(
       "TopicDiscovery",
-      "Scanning live AI news sources..."
+      "Scanning live AI and technology sources..."
     );
-
-    const parser = new Parser();
 
     const topics: DiscoveredTopic[] = [];
 
@@ -70,11 +88,19 @@ export class TopicDiscoveryService {
           `Reading RSS feed: ${feedSource.source}`
         );
 
-        const feed = await parser.parseURL(feedSource.url);
+        const feed = await this.parser.parseURL(
+          feedSource.url
+        );
 
-        const items = feed.items.slice(0, 10);
+        const items = Array.isArray(feed.items)
+          ? feed.items.slice(0, 15)
+          : [];
 
-        for (let index = 0; index < items.length; index++) {
+        for (
+          let index = 0;
+          index < items.length;
+          index++
+        ) {
           const item = items[index];
 
           const title = item.title?.trim();
@@ -83,124 +109,151 @@ export class TopicDiscoveryService {
             continue;
           }
 
-          /*
-           * Prevent duplicate topics.
+          /**
+           * Require the actual article URL.
            *
-           * Case-insensitive comparison allows:
-           * "OpenAI launches X"
-           * "openai launches x"
-           *
-           * to be treated as the same topic.
+           * This prevents the system from publishing
+           * the RSS feed URL as the article source.
            */
-          const normalizedTitle = title.toLowerCase();
+          const articleUrl = item.link?.trim();
 
-          const exists = topics.some(
-            (topic) =>
-              topic.topic.toLowerCase() === normalizedTitle
-          );
+          if (!articleUrl) {
+            logger.autonomous(
+              "TopicDiscovery",
+              `Skipped "${title}" because no article URL was provided`
+            );
 
-          if (exists) {
             continue;
           }
 
-          /*
-           * RSS feeds normally provide the original article URL.
-           *
-           * This is the important fix:
-           * we preserve the REAL source URL instead of later
-           * publishing everything as news.google.com.
+          /**
+           * Duplicate detection.
            */
-          const articleUrl =
-            item.link?.trim() || feedSource.url;
+          const normalizedTitle =
+            this.normalizeText(title);
 
-          /*
-           * Extract RSS categories/tags.
+          const exists = topics.some(
+            (topic) =>
+              this.normalizeText(
+                topic.topic
+              ) === normalizedTitle
+          );
+
+          if (exists) {
+            logger.autonomous(
+              "TopicDiscovery",
+              `Skipped duplicate topic: "${title}"`
+            );
+
+            continue;
+          }
+
+          /**
+           * RSS categories.
            */
           const rssKeywords =
-            item.categories
-              ?.map((category) => String(category).trim())
-              .filter(Boolean) || [];
+            Array.isArray(item.categories)
+              ? item.categories
+                  .map((category) =>
+                    String(category).trim()
+                  )
+                  .filter(Boolean)
+              : [];
 
-          /*
-           * Always keep useful fallback keywords.
+          /**
+           * Detect AI/technology keywords from
+           * title and article summary.
            */
+          const summary =
+            this.cleanText(
+              item.contentSnippet ||
+                item.content ||
+                item.summary ||
+                ""
+            ) ||
+            `Latest update from ${feedSource.source}.`;
+
+          const detectedKeywords =
+            this.detectKeywords(
+              title,
+              summary
+            );
+
           const keywords = Array.from(
             new Set([
               ...rssKeywords,
+              ...detectedKeywords,
               "AI",
               "Artificial Intelligence",
               feedSource.source,
             ])
-          ).slice(0, 8);
+          ).slice(0, 10);
 
-          /*
-           * RSS does not provide a universal "volume" metric.
+          /**
+           * RSS does not provide universal search
+           * volume. Therefore this is a discovery
+           * strength signal, not fake market data.
            *
-           * Instead of using Math.random(), use a deterministic
-           * signal based on feed position.
-           *
-           * Earlier RSS items are normally newer and therefore
-           * receive a slightly stronger discovery signal.
+           * Newer items receive a stronger signal.
            */
           const sourceVolume = Math.max(
-            500,
-            1500 - index * 100
+            100,
+            1000 - index * 50
           );
 
-          /*
-           * Deterministic velocity estimate.
+          /**
+           * Discovery velocity estimate.
            *
-           * This is intentionally an ESTIMATE because RSS feeds
-           * do not provide real search-volume velocity.
-           *
-           * Later we can replace this with Google Trends,
-           * Reddit, GitHub, or another real signal.
+           * This is deliberately labelled as an
+           * estimate because RSS does not provide
+           * Google Trends-style velocity data.
            */
           const estimatedGrowth = Math.max(
-            20,
-            140 - index * 10
+            10,
+            100 - index * 7
           );
 
-          const summary =
-            item.contentSnippet?.trim() ||
-            item.content?.replace(/<[^>]*>/g, "").trim() ||
-            item.summary?.replace(/<[^>]*>/g, "").trim() ||
-            `Latest update from ${feedSource.source}.`;
-
-          const discoveredAt =
-            item.isoDate ||
-            item.pubDate ||
-            new Date().toISOString();
-
-          /*
-           * Create a stable-ish ID using the source and title.
+          /**
+           * Use the actual RSS publication date.
            */
-          const idSource =
-            `${feedSource.source}-${title}-${articleUrl}`;
+          const discoveredAt =
+            this.getValidDate(
+              item.isoDate,
+              item.pubDate
+            );
 
-          const id = Buffer.from(idSource)
-            .toString("base64")
-            .replace(/[^a-zA-Z0-9]/g, "")
-            .slice(0, 32);
+          /**
+           * Deterministic topic ID.
+           */
+          const id =
+            this.createTopicId(
+              feedSource.source,
+              title,
+              articleUrl
+            );
 
           const topic: DiscoveredTopic = {
-            id: `topic-${id}`,
+            id,
 
             topic: title,
 
-            category: feedSource.category,
+            category:
+              feedSource.category,
 
             sourceVolume,
 
-            velocityGrowth: `+${estimatedGrowth}%`,
+            velocityGrowth:
+              `+${estimatedGrowth}%`,
 
             keywords,
 
             discoveredAt,
 
-            source: feedSource.source,
+            source:
+              feedSource.source,
 
-            url: articleUrl,
+            url:
+              articleUrl,
 
             summary,
           };
@@ -209,41 +262,251 @@ export class TopicDiscoveryService {
 
           logger.autonomous(
             "TopicDiscovery",
-            `Discovered: "${title}" from ${feedSource.source}`
+            `Discovered live topic: "${title}" from ${feedSource.source}`
           );
         }
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : String(error);
+
         logger.warn(
-          `RSS failed: ${feedSource.url}`,
-          error
+          `RSS failed for ${feedSource.source}: ${errorMessage}`
         );
       }
     }
 
-    /*
+    /**
      * Newest topics first.
      */
     topics.sort(
       (a, b) =>
-        new Date(b.discoveredAt).getTime() -
-        new Date(a.discoveredAt).getTime()
+        new Date(
+          b.discoveredAt
+        ).getTime() -
+        new Date(
+          a.discoveredAt
+        ).getTime()
     );
 
-    /*
-     * Keep the latest discovery result in memory.
+    /**
+     * Save the latest discovery result.
      */
     this.discoveredTopics = topics;
 
     logger.autonomous(
       "TopicDiscovery",
-      `Discovered ${topics.length} live topics`
+      `Live discovery completed: ${topics.length} unique topics`
     );
 
-    return topics;
+    return [...topics];
   }
 
+  /**
+   * Return the latest discovered topics.
+   */
   public getDiscoveredTopics(): DiscoveredTopic[] {
     return [...this.discoveredTopics];
+  }
+
+  /**
+   * Normalize text for duplicate detection.
+   */
+  private normalizeText(
+    text: string
+  ): string {
+    return text
+      .toLowerCase()
+      .replace(
+        /[^a-z0-9\s]/g,
+        " "
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
+      .trim();
+  }
+
+  /**
+   * Clean RSS HTML/content.
+   */
+  private cleanText(
+    text: string
+  ): string {
+    return text
+      .replace(
+        /<[^>]*>/g,
+        " "
+      )
+      .replace(
+        /&nbsp;/gi,
+        " "
+      )
+      .replace(
+        /&amp;/gi,
+        "&"
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
+      .trim()
+      .slice(0, 1200);
+  }
+
+  /**
+   * Return a valid ISO UTC timestamp.
+   */
+  private getValidDate(
+    isoDate?: string,
+    pubDate?: string
+  ): string {
+    const candidates = [
+      isoDate,
+      pubDate,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+
+      const date = new Date(candidate);
+
+      if (!Number.isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    }
+
+    return new Date().toISOString();
+  }
+
+  /**
+   * Detect useful AI/technology concepts.
+   */
+  private detectKeywords(
+    title: string,
+    summary: string
+  ): string[] {
+    const text =
+      `${title} ${summary}`.toLowerCase();
+
+    const keywordMap: Record<
+      string,
+      string
+    > = {
+      "large language model":
+        "LLMs",
+
+      llm: "LLMs",
+
+      model: "AI Models",
+
+      agent: "AI Agents",
+
+      agents: "AI Agents",
+
+      reasoning: "Reasoning",
+
+      inference: "Inference",
+
+      multimodal: "Multimodal",
+
+      robotics: "Robotics",
+
+      robot: "Robotics",
+
+      gpu: "GPU",
+
+      nvidia: "NVIDIA",
+
+      openai: "OpenAI",
+
+      anthropic: "Anthropic",
+
+      gemini: "Gemini",
+
+      deepseek: "DeepSeek",
+
+      "hugging face":
+        "Hugging Face",
+
+      mcp: "MCP",
+
+      "machine learning":
+        "Machine Learning",
+
+      "computer vision":
+        "Computer Vision",
+
+      security:
+        "AI Security",
+
+      safety:
+        "AI Safety",
+
+      benchmark:
+        "Benchmarks",
+
+      "open source":
+        "Open Source",
+
+      "open-source":
+        "Open Source",
+    };
+
+    const matches: string[] = [];
+
+    for (
+      const [
+        searchTerm,
+        label,
+      ] of Object.entries(
+        keywordMap
+      )
+    ) {
+      if (
+        text.includes(
+          searchTerm
+        )
+      ) {
+        matches.push(label);
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * Generate a deterministic ID from
+   * source + title + URL.
+   */
+  private createTopicId(
+    source: string,
+    title: string,
+    url: string
+  ): string {
+    const raw =
+      `${source}|${title}|${url}`;
+
+    let hash = 0;
+
+    for (
+      let index = 0;
+      index < raw.length;
+      index++
+    ) {
+      hash =
+        (hash << 5) -
+        hash +
+        raw.charCodeAt(index);
+
+      hash |= 0;
+    }
+
+    return `topic-${Math.abs(hash)}`;
   }
 }
 
