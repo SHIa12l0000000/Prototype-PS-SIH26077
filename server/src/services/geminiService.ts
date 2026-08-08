@@ -1,241 +1,103 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
+import { ScoredTopic } from './editorialScoringService.js';
 
-
-export interface GeneratedPostContent {
-
-    text: string;
-
-    rationale: string;
-
-    sources: string[];
-
+export interface GeneratedPost {
+  text: string;
+  rationale: string;
+  sources: string[];
 }
-
 
 export class GeminiService {
 
-    private genAI: GoogleGenerativeAI | null = null;
+  constructor() {
+    logger.info(
+      'AI Content Service initialized in local fallback mode. Gemini is disabled.'
+    );
+  }
 
-    private apiKey: string | null = null;
+  /**
+   * Generates a local AI-style post.
+   *
+   * No Google Gemini API is used.
+   */
+  public async generatePostForPersona(
+    personaName: string,
+    domain: string,
+    topic: ScoredTopic,
+    _previousPosts: string[] = []
+  ): Promise<GeneratedPost> {
 
+    logger.autonomous(
+      'ContentGenerator',
+      `Generating local AI-style post for topic: "${topic.topic}"`
+    );
 
-    constructor() {
-
-        this.apiKey =
-            process.env.GEMINI_API_KEY ||
-            process.env.GOOGLE_GENAI_API_KEY ||
-            null;
-
-
-        if (this.apiKey) {
-
-            this.genAI =
-                new GoogleGenerativeAI(this.apiKey);
-
-
-            logger.info(
-                'Gemini AI Service initialized.'
-            );
-
-        } else {
-
-            logger.warn(
-                'Gemini API key missing. Using fallback mode.'
-            );
-
-        }
-
-    }
+    return this.generateFallbackPost(
+      personaName,
+      domain,
+      topic
+    );
+  }
 
 
+  /**
+   * Generates fallback content locally.
+   */
+  private generateFallbackPost(
+    personaName: string,
+    domain: string,
+    topic: ScoredTopic
+  ): GeneratedPost {
 
-    public async generatePostForPersona(
-
-        personaName: string,
-
-        domain: string,
-
-        topic: {
-            title: string;
-            summary: string;
-            url: string;
-        },
-
-        previousPosts: string[] = []
-
-    ): Promise<GeneratedPostContent> {
-
-
-
-        if (this.genAI && this.apiKey) {
+    const keywords =
+      topic.keywords &&
+      topic.keywords.length > 0
+        ? topic.keywords
+            .slice(0, 5)
+            .join(', ')
+        : 'artificial intelligence, technology';
 
 
-            try {
+    const text = [
+      `🤖 ${personaName} — ${topic.topic}`,
+      '',
+      `The latest development in ${domain} highlights an important direction for the technology industry.`,
+      '',
+      `Why it matters: This development is connected to ${keywords} and could influence AI engineering, product development, and future technology decisions.`,
+      '',
+      `TechPulse AI Perspective: ${personaName} is tracking this development because it represents an important technology trend worth watching.`,
+      '',
+      'Editorial Assessment:',
+      `• Relevance Score: ${topic.relevanceScore}/100`,
+      `• Novelty Score: ${topic.noveltyScore}/100`,
+      `• Editorial Score: ${topic.editorialScore}/100`,
+      `• Recommendation: ${topic.recommendation}`
+    ].join('\n');
 
 
-                const model =
-                    this.genAI.getGenerativeModel({
-
-                        model: 'gemini-1.5-flash',
-
-                        generationConfig: {
-
-                            responseMimeType:
-                                'application/json'
-
-                        }
-
-                    });
+    const rationale =
+      `Selected because this topic is relevant to ${domain}, ` +
+      `represents a current technology development, and has ` +
+      `an editorial score of ${topic.editorialScore}/100.`;
 
 
-
-                const prompt = `
-
-You are ${personaName}.
-
-Role:
-Senior AI Product Analyst
-
-Domain:
-${domain}
-
-Topic:
-${topic.title}
-
-Summary:
-${topic.summary}
-
-Source:
-${topic.url}
-
-Previous topics:
-${previousPosts.join("\n")}
+    /*
+     * DiscoveredTopic / ScoredTopic does not contain
+     * a URL, so do not use topic.url here.
+     *
+     * The article service can use its own fallback source.
+     */
+    const sources: string[] = [];
 
 
-Return JSON only:
-
-{
-"text":"",
-"rationale":"",
-"sources":[]
+    return {
+      text,
+      rationale,
+      sources
+    };
+  }
 }
-
-`;
-
-
-
-                const result =
-                    await model.generateContent(prompt);
-
-
-
-                const responseText =
-                    result.response.text();
-
-
-
-                const parsed =
-                    JSON.parse(responseText);
-
-
-
-                if (
-
-                    parsed.text &&
-                    parsed.rationale &&
-                    Array.isArray(parsed.sources)
-
-                ) {
-
-
-                    return {
-
-                        text:
-                            `${personaName} Insight: ${parsed.text}`,
-
-                        rationale:
-                            parsed.rationale,
-
-                        sources:
-                            parsed.sources
-
-                    };
-
-                }
-
-
-
-            } catch(error) {
-
-
-                logger.error(
-                    'Gemini generation failed',
-                    error
-                );
-
-            }
-
-
-        }
-
-
-
-        return this.generateFallbackPost(
-            personaName,
-            domain,
-            topic
-        );
-
-    }
-
-
-
-
-    private generateFallbackPost(
-
-        personaName: string,
-
-        domain: string,
-
-        topic: {
-            title: string;
-            summary: string;
-            url: string;
-        }
-
-    ): GeneratedPostContent {
-
-
-        return {
-
-
-            text:
-`${topic.title}
-
-${topic.summary}
-
-This development may significantly influence ${domain} and future engineering decisions.`,
-
-
-            rationale:
-`Selected because it aligns with ${personaName} editorial strategy and represents a high-impact technology update.`,
-
-
-            sources:
-            [
-                topic.url
-            ]
-
-        };
-
-
-    }
-
-
-}
-
 
 
 export const geminiService =
-    new GeminiService();
+  new GeminiService();
