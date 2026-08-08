@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Layers,
   Cpu,
+  RefreshCw,
   AlertCircle,
 } from 'lucide-react';
 import { AutonomousStatus as AutonomousStatusType } from '../types';
@@ -15,7 +16,7 @@ import { triggerAutonomousJob } from '../services/api';
 
 interface AutonomousStatusProps {
   status: AutonomousStatusType | null;
-  onJobExecuted: () => void;
+  onJobExecuted: () => Promise<void> | void;
 }
 
 export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
@@ -23,9 +24,8 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
   onJobExecuted,
 }) => {
   const [running, setRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState<
-    'SERVICES' | 'TOPICS' | 'LOGS'
-  >('SERVICES');
+  const [activeTab, setActiveTab] =
+    useState<'SERVICES' | 'TOPICS' | 'LOGS'>('SERVICES');
 
   const [lastJobLogs, setLastJobLogs] = useState<string[]>([]);
   const [triggerMessage, setTriggerMessage] = useState('');
@@ -34,34 +34,40 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
   const handleTriggerWorkflow = async () => {
     if (running) return;
 
-    setRunning(true);
-    setTriggerMessage('');
-    setTriggerError('');
-    setLastJobLogs([]);
-    setActiveTab('LOGS');
-
     try {
-      const response = await triggerAutonomousJob();
+      setRunning(true);
+      setTriggerMessage('');
+      setTriggerError('');
 
-      if (response.job?.logs) {
-        setLastJobLogs(response.job.logs);
+      const res = await triggerAutonomousJob();
+
+      if (res.job?.logs) {
+        setLastJobLogs(res.job.logs);
       }
 
-      setTriggerMessage(
-        response.message ||
-          'Autonomous AI cycle completed successfully.'
+      await onJobExecuted();
+
+      if (res.success) {
+        setTriggerMessage(
+          'Autonomous cycle completed. Discovery data refreshed.'
+        );
+        setActiveTab('LOGS');
+      } else {
+        setTriggerError(
+          res.message || 'Autonomous cycle completed with an unknown result.'
+        );
+        setActiveTab('LOGS');
+      }
+    } catch (err: unknown) {
+      console.error('Trigger workflow failed:', err);
+
+      setTriggerError(
+        err instanceof Error
+          ? err.message
+          : 'Autonomous workflow failed.'
       );
 
-      onJobExecuted();
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Unable to trigger the autonomous AI cycle.';
-
-      console.error('Autonomous trigger failed:', error);
-
-      setTriggerError(message);
+      setActiveTab('LOGS');
     } finally {
       setRunning(false);
     }
@@ -70,20 +76,24 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
   const scheduler = status?.scheduler;
   const memory = status?.memory;
   const topics = status?.discoveredTopics || [];
+  const latestJob = status?.jobs?.[0];
+
+  const lastDiscoveryTime =
+    topics.length > 0 && topics[0]?.discoveredAt
+      ? new Date(topics[0].discoveredAt).toLocaleString()
+      : 'Not available';
 
   return (
-    <section className="mb-12">
-      <div className="glass-panel p-6 rounded-2xl border border-purple-500/20 relative overflow-hidden">
+    <section className="relative overflow-hidden">
+      {/* Ambient Top Glow */}
+      <div className="absolute top-0 right-0 w-80 h-32 bg-purple-500/10 blur-[80px] pointer-events-none" />
 
-        {/* Ambient glow */}
-        <div className="absolute top-0 right-0 w-80 h-32 bg-purple-500/10 blur-[80px] pointer-events-none" />
-
+      <div className="relative">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
-
             <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              <Bot className="w-6 h-6 animate-bounce" />
+              <Bot className="w-6 h-6" />
             </div>
 
             <div>
@@ -93,84 +103,104 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                 </h3>
 
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  AUTONOMOUS SCHEDULER ACTIVE
+                  {scheduler?.autoRunEnabled
+                    ? 'AUTONOMOUS SCHEDULER ACTIVE'
+                    : 'SCHEDULER PAUSED'}
                 </span>
               </div>
 
               <p className="text-xs text-slate-400">
                 Autonomous topic discovery, editorial scoring, AI synthesis
-                & vector memory indexing
+                &amp; vector memory indexing
               </p>
             </div>
           </div>
 
-          {/* Trigger button */}
           <button
             type="button"
             onClick={handleTriggerWorkflow}
             disabled={running}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg shadow-purple-500/25 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Play
-              className={`w-4 h-4 ${
-                running ? 'animate-spin' : ''
-              }`}
-            />
+            {running ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4" />
+            )}
 
             <span>
               {running
-                ? 'Executing Autonomous Agent Run...'
+                ? 'Running Autonomous Cycle...'
                 : 'Trigger Autonomous AI Cycle'}
             </span>
           </button>
         </div>
 
-        {/* Success message */}
-        {triggerMessage && !triggerError && (
-          <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-            <div className="flex items-start gap-2">
-              <CheckCircle2 className="w-5 h-5 mt-0.5 text-emerald-400 shrink-0" />
-
-              <div>
-                <p className="font-bold">
-                  Autonomous cycle completed
-                </p>
-
-                <p className="mt-1 text-emerald-300/80">
-                  {triggerMessage}
-                </p>
-              </div>
-            </div>
+        {/* Trigger Success */}
+        {triggerMessage && (
+          <div className="mb-5 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{triggerMessage}</span>
           </div>
         )}
 
-        {/* Error message */}
+        {/* Trigger Error */}
         {triggerError && (
-          <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 mt-0.5 text-red-400 shrink-0" />
-
-              <div>
-                <p className="font-bold">
-                  Autonomous trigger failed
-                </p>
-
-                <p className="mt-1 text-red-300/90 break-words">
-                  {triggerError}
-                </p>
-
-                <p className="mt-2 text-xs text-red-300/60">
-                  Check that the Railway backend is running and the
-                  API URL is correct.
-                </p>
-              </div>
-            </div>
+          <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{triggerError}</span>
           </div>
         )}
+
+        {/* Discovery Information */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+              Current Discovery
+            </div>
+
+            <div className="text-xl font-bold text-white">
+              {topics.length}
+            </div>
+
+            <div className="text-[11px] text-slate-400">
+              topics discovered
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+              Latest Topic Time
+            </div>
+
+            <div className="text-sm font-semibold text-white">
+              {lastDiscoveryTime}
+            </div>
+
+            <div className="text-[11px] text-slate-400">
+              latest discovery
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+              Latest Job
+            </div>
+
+            <div className="text-sm font-semibold text-white">
+              {latestJob?.status || 'No job'}
+            </div>
+
+            <div className="text-[11px] text-slate-400">
+              {latestJob?.startedAt
+                ? new Date(latestJob.startedAt).toLocaleString()
+                : 'No execution yet'}
+            </div>
+          </div>
+        </div>
 
         {/* Tabs */}
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-6 text-xs font-semibold overflow-x-auto">
-
           <button
             type="button"
             onClick={() => setActiveTab('SERVICES')}
@@ -180,7 +210,7 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Core AI Services (5)
+            Core AI Services (4)
           </button>
 
           <button
@@ -204,14 +234,13 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Execution Logs & Vector Memory
+            Execution Logs &amp; Vector Memory
           </button>
         </div>
 
-        {/* SERVICES TAB */}
+        {/* SERVICES */}
         {activeTab === 'SERVICES' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
             {/* Topic Discovery */}
             <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
               <div className="flex items-center justify-between mb-2">
@@ -226,13 +255,13 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
               </div>
 
               <p className="text-xs text-slate-400">
-                Scans arXiv, RSS, & research papers for high-velocity
-                signal.
+                Scans configured live RSS feeds for current AI and technology
+                topics.
               </p>
 
               <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] text-slate-500 flex justify-between">
-                <span>Signal Threshold: 80%</span>
-                <span>Auto-scan: 45s</span>
+                <span>Live RSS</span>
+                <span>Auto-scan: 15m</span>
               </div>
             </div>
 
@@ -250,16 +279,17 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
               </div>
 
               <p className="text-xs text-slate-400">
-                Evaluates relevance & novelty metrics (0-100 scale).
+                Evaluates discovered topics for relevance and publishing
+                eligibility.
               </p>
 
               <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] text-slate-500 flex justify-between">
-                <span>Threshold: &gt;88</span>
-                <span>Weighted LLM</span>
+                <span>Publish ≥ 75</span>
+                <span>Weighted scoring</span>
               </div>
             </div>
 
-            {/* AI Content Generation */}
+            {/* AI Content */}
             <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
@@ -273,8 +303,8 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
               </div>
 
               <p className="text-xs text-slate-400">
-                Synthesizes multi-source news summaries & structured
-                tags.
+                Generates structured AI technology intelligence from selected
+                topics.
               </p>
 
               <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] text-slate-500 flex justify-between">
@@ -297,8 +327,8 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
               </div>
 
               <p className="text-xs text-slate-400">
-                Stores {memory?.vectorCount || 42} vectors with{' '}
-                {memory?.dimension || 1536}-dim embeddings.
+                Stores {memory?.vectorCount ?? 0} vectors with{' '}
+                {memory?.dimension ?? 1536}-dim embeddings.
               </p>
 
               <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] text-slate-500 flex justify-between">
@@ -306,18 +336,22 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                 <span>Synced</span>
               </div>
             </div>
-
           </div>
         )}
 
-        {/* TOPICS TAB */}
+        {/* TOPICS */}
         {activeTab === 'TOPICS' && (
           <div className="space-y-3">
-
             {topics.length === 0 ? (
-              <div className="p-6 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
-                <p className="text-sm text-slate-500">
-                  No discovered topics yet.
+              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-8 text-center">
+                <Sparkles className="w-8 h-8 mx-auto mb-3 text-slate-600" />
+
+                <p className="text-sm text-slate-400">
+                  No topics discovered yet.
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Trigger an autonomous cycle to scan the configured feeds.
                 </p>
               </div>
             ) : (
@@ -326,8 +360,8 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                   key={topic.id}
                   className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-4"
                 >
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-xs font-bold text-white">
                         {topic.topic}
                       </span>
@@ -339,7 +373,7 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
 
                     <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
                       <span>
-                        Citations: {topic.sourceVolume}
+                        Source signal: {topic.sourceVolume}
                       </span>
 
                       <span>
@@ -349,70 +383,60 @@ export const AutonomousStatus: React.FC<AutonomousStatusProps> = ({
                         </span>
                       </span>
 
-                      <span>
-                        Keywords: {topic.keywords.join(', ')}
-                      </span>
+                      {topic.discoveredAt && (
+                        <span>
+                          Discovered:{' '}
+                          {new Date(topic.discoveredAt).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Keywords:{' '}
+                      {topic.keywords?.length
+                        ? topic.keywords.join(', ')
+                        : 'None'}
                     </div>
                   </div>
 
                   <span className="text-xs font-bold text-purple-400 bg-purple-500/10 px-3 py-1 rounded-lg whitespace-nowrap">
-                    Scored
+                    Discovered
                   </span>
                 </div>
               ))
             )}
-
           </div>
         )}
 
-        {/* LOGS TAB */}
+        {/* LOGS */}
         {activeTab === 'LOGS' && (
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-300">
-
             <div className="flex items-center gap-2 mb-3 text-slate-400 pb-2 border-b border-slate-800">
               <Terminal className="w-4 h-4 text-purple-400" />
 
-              <span>
-                Autonomous AI Execution Terminal Output
-              </span>
+              <span>Autonomous AI Execution Terminal Output</span>
             </div>
-
-            {running && (
-              <div className="mb-4 flex items-center gap-2 text-cyan-300">
-                <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-
-                <span>
-                  Autonomous workflow is running...
-                </span>
-              </div>
-            )}
 
             {lastJobLogs.length > 0 ? (
               <div className="space-y-1">
                 {lastJobLogs.map((log, index) => (
                   <div
-                    key={`${index}-${log}`}
+                    key={`${log}-${index}`}
                     className="flex items-start gap-2 text-slate-300"
                   >
-                    <span className="text-purple-400">
-                      &gt;
-                    </span>
-
+                    <span className="text-purple-400">&gt;</span>
                     <span>{log}</span>
                   </div>
                 ))}
               </div>
             ) : (
               <p className="text-slate-500 italic">
-                {running
-                  ? 'Waiting for autonomous workflow logs...'
-                  : 'No manual triggers in this session yet. Click "Trigger Autonomous AI Cycle" above to start the workflow.'}
+                No manual triggers in this session yet. Click "Trigger
+                Autonomous AI Cycle" to observe the workflow.
               </p>
             )}
-
           </div>
         )}
-
       </div>
     </section>
   );
