@@ -6,359 +6,323 @@ import { AutonomousJob } from '../models/types.js';
 import { logger } from '../utils/logger.js';
 
 export class AutonomousSchedulerService {
-  private activeJobs: AutonomousJob[] = [];
+    private activeJobs: AutonomousJob[] = [];
 
-  private isAutoRunEnabled = true;
+    private isAutoRunEnabled = true;
 
-  private timer: NodeJS.Timeout | null = null;
+    private timer: NodeJS.Timeout | null = null;
 
-  // Topics scoring 60 or higher are eligible for auto-publishing.
-  private readonly PUBLISH_THRESHOLD = 60;
+    private readonly PUBLISH_THRESHOLD = 60;
 
-  constructor() {
-    this.initScheduler();
-  }
-
-  /**
-   * Start the autonomous scheduler.
-   * The workflow runs every 45 seconds.
-   */
-  private initScheduler(): void {
-    logger.autonomous(
-      'Scheduler',
-      'Initializing Autonomous AI Creator scheduler (45s heartbeat)...'
-    );
-
-    this.timer = setInterval(() => {
-      if (!this.isAutoRunEnabled) {
-        return;
-      }
-
-      this.runAutonomousPulseWorkflow().catch((error) => {
-        logger.error('Autonomous workflow error', error);
-      });
-    }, 45000);
-  }
-
-  /**
-   * Execute the complete autonomous AI workflow:
-   *
-   * 1. Discover topics
-   * 2. Score topics
-   * 3. Select highest-scoring topic
-   * 4. Check publish threshold
-   * 5. Check recommendation
-   * 6. Check duplicates
-   * 7. Generate article
-   * 8. Index article into memory
-   * 9. Complete job
-   */
-  public async runAutonomousPulseWorkflow(): Promise<AutonomousJob> {
-    const jobId = `job-${Date.now()}`;
-
-    logger.autonomous(
-      'Scheduler',
-      `Starting autonomous workflow: ${jobId}`
-    );
-
-    const job: AutonomousJob = {
-      id: jobId,
-      type: 'DISCOVERY',
-      status: 'RUNNING',
-      startedAt: new Date().toISOString(),
-      logs: [
-        'Job initialized',
-        'Starting topic discovery'
-      ]
-    };
-
-    this.activeJobs.unshift(job);
-
-    // Keep only the latest 20 jobs.
-    if (this.activeJobs.length > 20) {
-      this.activeJobs.pop();
+    constructor() {
+        this.initScheduler();
     }
 
-    try {
-      // ============================================================
-      // 1. DISCOVER TOPICS
-      // ============================================================
-
-      const rawTopics =
-        await topicDiscoveryService.scanTrendingTopics();
-
-      job.logs.push(
-        `Discovered ${rawTopics.length} topics`
-      );
-
-      if (rawTopics.length === 0) {
-        throw new Error('No topics discovered');
-      }
-
-      logger.autonomous(
-        'TopicDiscovery',
-        `Discovered ${rawTopics.length} live topics`
-      );
-
-      // ============================================================
-      // 2. SCORE TOPICS
-      // ============================================================
-
-      job.type = 'SCORING';
-
-      const scoredTopics =
-        await editorialScoringService.scoreTopics(
-          rawTopics
-        );
-
-      job.logs.push(
-        `Scored ${scoredTopics.length} topics`
-      );
-
-      if (scoredTopics.length === 0) {
-        throw new Error('No topics were scored');
-      }
-
-      // Highest editorial score first.
-      const rankedTopics = [...scoredTopics].sort(
-        (a, b) =>
-          b.editorialScore - a.editorialScore
-      );
-
-      const topTopic = rankedTopics[0];
-
-      logger.autonomous(
-        'EditorialScoring',
-        `Top topic: "${topTopic.topic}" (${topTopic.editorialScore}/100)`
-      );
-
-      job.logs.push(
-        `Top scored topic: ${topTopic.topic} (${topTopic.editorialScore}/100)`
-      );
-
-      // ============================================================
-      // 3. PUBLISH THRESHOLD CHECK
-      // ============================================================
-
-      if (
-        topTopic.editorialScore <
-        this.PUBLISH_THRESHOLD
-      ) {
-        job.logs.push(
-          `No topic reached the auto-publish threshold of ${this.PUBLISH_THRESHOLD}/100`
-        );
-
-        job.logs.push(
-          `Highest score was ${topTopic.editorialScore}/100`
-        );
-
-        job.logs.push(
-          `Topic requires REVIEW: ${topTopic.topic}`
-        );
-
+    private initScheduler(): void {
         logger.autonomous(
-          'Scheduler',
-          `No topic qualified for auto-publishing. Highest score: ${topTopic.editorialScore}/100`
+            'Scheduler',
+            'Initializing Autonomous AI Creator scheduler (45s heartbeat)...'
         );
 
-        job.status = 'COMPLETED';
-        job.completedAt = new Date().toISOString();
+        this.timer = setInterval(() => {
+            if (!this.isAutoRunEnabled) {
+                return;
+            }
 
-        return job;
-      }
-
-      // ============================================================
-      // 4. RECOMMENDATION CHECK
-      // ============================================================
-
-      if (
-        topTopic.recommendation !== 'PUBLISH'
-      ) {
-        job.logs.push(
-          `Topic reached ${topTopic.editorialScore}/100 but recommendation is ${topTopic.recommendation}`
-        );
-
-        job.logs.push(
-          `Topic requires editorial review: ${topTopic.topic}`
-        );
-
-        logger.autonomous(
-          'Scheduler',
-          `Topic requires review: "${topTopic.topic}" (${topTopic.editorialScore}/100, ${topTopic.recommendation})`
-        );
-
-        job.status = 'COMPLETED';
-        job.completedAt = new Date().toISOString();
-
-        return job;
-      }
-
-      // ============================================================
-      // 5. DUPLICATE CHECK
-      // ============================================================
-
-      if (
-        memoryService.hasTopic(
-          topTopic.topic
-        )
-      ) {
-        job.logs.push(
-          `Skipped duplicate topic: ${topTopic.topic}`
-        );
-
-        job.status = 'COMPLETED';
-        job.completedAt = new Date().toISOString();
-
-        logger.autonomous(
-          'Scheduler',
-          `Skipped duplicate topic: ${topTopic.topic}`
-        );
-
-        return job;
-      }
-
-      // ============================================================
-      // 6. GENERATE ARTICLE
-      // ============================================================
-
-      job.type = 'GENERATION';
-
-      logger.autonomous(
-        'ContentGenerator',
-        `Generating article for "${topTopic.topic}"`
-      );
-
-      const article =
-        await aiContentGenService.generatePulseArticle(
-          topTopic
-        );
-
-      job.logs.push(
-        'Article generated successfully'
-      );
-
-      // ============================================================
-      // 7. MEMORY INDEXING
-      // ============================================================
-
-      job.type = 'MEMORY_INDEXING';
-
-      await memoryService.indexArticleMemory(
-        topTopic.topic,
-        topTopic.category
-      );
-
-      job.logs.push(
-        'Article indexed into memory'
-      );
-
-      // ============================================================
-      // 8. COMPLETE WORKFLOW
-      // ============================================================
-
-      job.status = 'COMPLETED';
-      job.completedAt = new Date().toISOString();
-      job.payload = article;
-
-      logger.autonomous(
-        'Scheduler',
-        `Workflow completed: ${jobId}`
-      );
-
-      return job;
-    } catch (error) {
-      // ============================================================
-      // ERROR HANDLING
-      // ============================================================
-
-      job.status = 'FAILED';
-      job.completedAt = new Date().toISOString();
-
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : String(error);
-
-      job.logs.push(
-        `Error: ${errorMessage}`
-      );
-
-      logger.error(
-        'Autonomous workflow failed',
-        error
-      );
-
-      return job;
+            this.runAutonomousPulseWorkflow().catch((error) => {
+                logger.error(
+                    'Autonomous workflow error',
+                    error
+                );
+            });
+        }, 45000);
     }
-  }
 
-  /**
-   * Return recent autonomous jobs.
-   */
-  public getJobs(): AutonomousJob[] {
-    return [...this.activeJobs];
-  }
+    public async runAutonomousPulseWorkflow(): Promise<AutonomousJob> {
+        const jobId = `job-${Date.now()}`;
 
-  /**
-   * Enable or disable automatic scheduler execution.
-   */
-  public toggleAutoRun(
-    enable: boolean
-  ): boolean {
-    this.isAutoRunEnabled = enable;
+        logger.autonomous(
+            'Scheduler',
+            `Starting autonomous workflow: ${jobId}`
+        );
 
-    logger.autonomous(
-      'Scheduler',
-      `Autorun changed: ${enable}`
-    );
+        const job: AutonomousJob = {
+            id: jobId,
+            type: 'DISCOVERY',
+            status: 'RUNNING',
+            startedAt: new Date().toISOString(),
+            logs: [
+                'Job initialized',
+                'Starting topic discovery'
+            ]
+        };
 
-    return this.isAutoRunEnabled;
-  }
+        this.activeJobs.unshift(job);
 
-  /**
-   * Return scheduler and job statistics.
-   */
-  public getStatus() {
-    return {
-      autoRunEnabled: this.isAutoRunEnabled,
+        if (this.activeJobs.length > 20) {
+            this.activeJobs.pop();
+        }
 
-      activeJobsCount:
-        this.activeJobs.filter(
-          (job) => job.status === 'RUNNING'
-        ).length,
+        try {
+            // 1. DISCOVER TOPICS
 
-      completedJobsCount:
-        this.activeJobs.filter(
-          (job) => job.status === 'COMPLETED'
-        ).length,
+            const rawTopics =
+                await topicDiscoveryService.scanTrendingTopics();
 
-      failedJobsCount:
-        this.activeJobs.filter(
-          (job) => job.status === 'FAILED'
-        ).length,
+            job.logs.push(
+                `Discovered ${rawTopics.length} topics`
+            );
 
-      lastRunAt:
-        this.activeJobs[0]?.startedAt ||
-        'Never'
-    };
-  }
+            if (rawTopics.length === 0) {
+                throw new Error('No topics discovered');
+            }
 
-  /**
-   * Stop the scheduler timer.
-   */
-  public stopScheduler(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
+            logger.autonomous(
+                'TopicDiscovery',
+                `Discovered ${rawTopics.length} live topics`
+            );
 
-      this.timer = null;
+            // 2. SCORE TOPICS
 
-      logger.autonomous(
-        'Scheduler',
-        'Scheduler stopped'
-      );
+            job.type = 'SCORING';
+
+            const scoredTopics =
+                await editorialScoringService.scoreTopics(
+                    rawTopics
+                );
+
+            job.logs.push(
+                `Scored ${scoredTopics.length} topics`
+            );
+
+            if (scoredTopics.length === 0) {
+                throw new Error('No topics were scored');
+            }
+
+            const rankedTopics = [...scoredTopics].sort(
+                (a, b) =>
+                    b.editorialScore -
+                    a.editorialScore
+            );
+
+            const topTopic = rankedTopics[0];
+
+            logger.autonomous(
+                'EditorialScoring',
+                `Top topic: "${topTopic.topic}" (${topTopic.editorialScore}/100)`
+            );
+
+            job.logs.push(
+                `Top scored topic: ${topTopic.topic} (${topTopic.editorialScore}/100)`
+            );
+
+            // 3. PUBLISH THRESHOLD CHECK
+
+            if (
+                topTopic.editorialScore <
+                this.PUBLISH_THRESHOLD
+            ) {
+                job.logs.push(
+                    `No topic reached the auto-publish threshold of ${this.PUBLISH_THRESHOLD}/100`
+                );
+
+                job.logs.push(
+                    `Highest score was ${topTopic.editorialScore}/100`
+                );
+
+                job.logs.push(
+                    `Topic requires REVIEW: ${topTopic.topic}`
+                );
+
+                logger.autonomous(
+                    'Scheduler',
+                    `No topic qualified for auto-publishing. Highest score: ${topTopic.editorialScore}/100`
+                );
+
+                job.status = 'COMPLETED';
+                job.completedAt =
+                    new Date().toISOString();
+
+                return job;
+            }
+
+            // 4. RECOMMENDATION CHECK
+
+            if (
+                topTopic.recommendation !==
+                'PUBLISH'
+            ) {
+                job.logs.push(
+                    `Topic reached ${topTopic.editorialScore}/100 but recommendation is ${topTopic.recommendation}`
+                );
+
+                job.logs.push(
+                    `Topic requires editorial review: ${topTopic.topic}`
+                );
+
+                logger.autonomous(
+                    'Scheduler',
+                    `Topic requires review: "${topTopic.topic}" (${topTopic.editorialScore}/100, ${topTopic.recommendation})`
+                );
+
+                job.status = 'COMPLETED';
+                job.completedAt =
+                    new Date().toISOString();
+
+                return job;
+            }
+
+            // 5. DUPLICATE CHECK
+
+            if (
+                memoryService.hasTopic(
+                    topTopic.topic
+                )
+            ) {
+                job.logs.push(
+                    `Skipped duplicate topic: ${topTopic.topic}`
+                );
+
+                job.status = 'COMPLETED';
+                job.completedAt =
+                    new Date().toISOString();
+
+                logger.autonomous(
+                    'Scheduler',
+                    `Skipped duplicate topic: ${topTopic.topic}`
+                );
+
+                return job;
+            }
+
+            // 6. GENERATE ARTICLE
+
+            job.type = 'GENERATION';
+
+            logger.autonomous(
+                'ContentGenerator',
+                `Generating article for "${topTopic.topic}"`
+            );
+
+            const article =
+                await aiContentGenService.generatePulseArticle(
+                    topTopic
+                );
+
+            job.logs.push(
+                'Article generated successfully'
+            );
+
+            // 7. MEMORY INDEXING
+
+            job.type = 'MEMORY_INDEXING';
+
+            await memoryService.indexArticleMemory(
+                topTopic.topic,
+                topTopic.category
+            );
+
+            job.logs.push(
+                'Article indexed into memory'
+            );
+
+            // 8. COMPLETE WORKFLOW
+
+            job.status = 'COMPLETED';
+            job.completedAt =
+                new Date().toISOString();
+
+            job.payload = article;
+
+            logger.autonomous(
+                'Scheduler',
+                `Workflow completed: ${jobId}`
+            );
+
+            return job;
+        } catch (error) {
+            job.status = 'FAILED';
+
+            job.completedAt =
+                new Date().toISOString();
+
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : String(error);
+
+            job.logs.push(
+                `Error: ${errorMessage}`
+            );
+
+            logger.error(
+                'Autonomous workflow failed',
+                error
+            );
+
+            return job;
+        }
     }
-  }
+
+    public getJobs(): AutonomousJob[] {
+        return [...this.activeJobs];
+    }
+
+    public toggleAutoRun(
+        enable: boolean
+    ): boolean {
+        this.isAutoRunEnabled = enable;
+
+        logger.autonomous(
+            'Scheduler',
+            `Autorun changed: ${enable}`
+        );
+
+        return this.isAutoRunEnabled;
+    }
+
+    public getStatus() {
+        return {
+            autoRunEnabled:
+                this.isAutoRunEnabled,
+
+            activeJobsCount:
+                this.activeJobs.filter(
+                    (job) =>
+                        job.status === 'RUNNING'
+                ).length,
+
+            completedJobsCount:
+                this.activeJobs.filter(
+                    (job) =>
+                        job.status === 'COMPLETED'
+                ).length,
+
+            failedJobsCount:
+                this.activeJobs.filter(
+                    (job) =>
+                        job.status === 'FAILED'
+                ).length,
+
+            lastRunAt:
+                this.activeJobs[0]?.startedAt ||
+                'Never'
+        };
+    }
+
+    public stopScheduler(): void {
+        if (this.timer) {
+            clearInterval(this.timer);
+
+            this.timer = null;
+
+            logger.autonomous(
+                'Scheduler',
+                'Scheduler stopped'
+            );
+        }
+    }
 }
 
 export const autonomousSchedulerService =
-  new AutonomousSchedulerService();
+    new AutonomousSchedulerService();
