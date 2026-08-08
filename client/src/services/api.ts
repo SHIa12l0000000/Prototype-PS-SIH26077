@@ -1,18 +1,14 @@
-import {
+﻿import {
   NewsItem,
   AnalyticsData,
   ModelStatus,
   AutonomousStatus,
 } from '../types';
 
-// Railway backend URL
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   'https://techpulse-ai-production-4086.up.railway.app/api';
 
-/**
- * Generic API helper
- */
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -38,9 +34,6 @@ async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
-/**
- * Fetch news articles
- */
 export const fetchNews = async (
   search: string = '',
   category: string = 'All'
@@ -70,9 +63,6 @@ export const fetchNews = async (
   }
 };
 
-/**
- * Fetch analytics
- */
 export const fetchAnalytics =
   async (): Promise<AnalyticsData | null> => {
     try {
@@ -92,9 +82,6 @@ export const fetchAnalytics =
     }
   };
 
-/**
- * Fetch AI model statuses
- */
 export const fetchModelStatuses =
   async (): Promise<ModelStatus[]> => {
     try {
@@ -114,9 +101,6 @@ export const fetchModelStatuses =
     }
   };
 
-/**
- * Fetch autonomous AI system status
- */
 export const fetchAutonomousStatus =
   async (): Promise<AutonomousStatus | null> => {
     try {
@@ -136,44 +120,42 @@ export const fetchAutonomousStatus =
     }
   };
 
-/**
- * Autonomous workflow job response
- *
- * AutonomousStatus.tsx expects:
- * response.job.logs
- */
 export interface AutonomousJobResponse {
   id: string;
   type: string;
   status: string;
-  startedAt: string;
+  startedAt?: string;
   completedAt?: string;
-  logs: string[];
+  logs?: string[];
   payload?: NewsItem;
+  [key: string]: unknown;
 }
 
-/**
- * Trigger autonomous workflow manually
- */
 export const triggerAutonomousJob =
   async (): Promise<{
     success: boolean;
-    job: AutonomousJobResponse;
+    message?: string;
+    job?: AutonomousJobResponse;
   }> => {
     const response =
       await apiRequest<{
         success: boolean;
-        job: AutonomousJobResponse;
+        message?: string;
+        job?: AutonomousJobResponse;
       }>('/autonomous/trigger', {
         method: 'POST',
       });
 
+    if (!response.success) {
+      throw new Error(
+        response.message ||
+          'Autonomous workflow failed.'
+      );
+    }
+
     return response;
   };
 
-/**
- * Upvote a news article
- */
 export const upvoteNewsArticle = async (
   id: string
 ): Promise<NewsItem | null> => {
@@ -199,9 +181,6 @@ export const upvoteNewsArticle = async (
   }
 };
 
-/**
- * Submit a new TechPulse article
- */
 export const submitPulseArticle = async (
   payload: Partial<NewsItem>
 ): Promise<NewsItem> => {
