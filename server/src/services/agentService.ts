@@ -1,7 +1,7 @@
 import {
   Persona,
   AgentPost,
-  AgentInstance
+  AgentInstance,
 } from "../models/agentTypes.js";
 
 import { geminiService } from "./geminiService.js";
@@ -9,55 +9,71 @@ import { logger } from "../utils/logger.js";
 
 import {
   ScoredTopic,
-  editorialScoringService
+  editorialScoringService,
 } from "./editorialScoringService.js";
 
 import { topicDiscoveryService } from "./topicDiscoveryService.js";
 import { memoryService } from "./memoryService.js";
 
-// Supabase connection
 import { supabase } from "../config/supabase.js";
 
 /**
- * In-memory autonomous agent store.
+ * ============================================================
+ * AUTONOMOUS AGENT STORE
+ * ============================================================
  *
- * Supabase is now used for permanent post persistence.
+ * Runtime agent state is kept in memory.
+ *
+ * Published posts are ALSO persisted to Supabase so the feed
+ * can survive application restarts.
  */
-const agentStore =
-  new Map<string, AgentInstance>();
+const agentStore = new Map<string, AgentInstance>();
 
 /**
  * Background scheduler for each agent.
  */
-const agentSchedulers =
-  new Map<string, NodeJS.Timeout>();
+const agentSchedulers = new Map<string, NodeJS.Timeout>();
 
 /**
  * Prevent overlapping autonomous cycles.
  */
-const runningAgents =
-  new Set<string>();
+const runningAgents = new Set<string>();
 
 /**
  * Publish approximately every 15 minutes.
+ *
+ * This means:
+ *
+ * Initialization
+ *      ↓
+ * Immediate autonomous cycle
+ *      ↓
+ * 15 minutes
+ *      ↓
+ * Autonomous cycle
+ *      ↓
+ * 15 minutes
+ *      ↓
+ * Autonomous cycle
  */
-const AGENT_INTERVAL_MS =
-  15 * 60 * 1000;
+const AGENT_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
- * Minimum score required for autonomous publishing.
+ * Minimum editorial score required for publishing.
  */
 const AGENT_PUBLISH_THRESHOLD = 75;
 
 export class AgentService {
   /**
-   * Initialize an autonomous agent.
+   * ============================================================
+   * INITIALIZE AGENT
+   * ============================================================
    *
    * POST /api/agent/init
+   *
+   * The evaluator calls this exactly once.
    */
-  public initializeAgent(
-    persona: Persona
-  ): string {
+  public initializeAgent(persona: Persona): string {
     const agentId =
       `agent_${Date.now()}_${Math.random()
         .toString(36)
@@ -74,7 +90,7 @@ export class AgentService {
         typeof persona?.domain === "string" &&
         persona.domain.trim()
           ? persona.domain.trim()
-          : "Artificial Intelligence and Technology"
+          : "Artificial Intelligence and Technology",
     };
 
     const instance: AgentInstance = {
@@ -83,42 +99,40 @@ export class AgentService {
       persona: normalizedPersona,
 
       memory: {
-        initializedAt:
-          new Date().toISOString(),
+        initializedAt: new Date().toISOString(),
 
         topicHistory: [],
 
-        sourceIndex: []
+        sourceIndex: [],
       },
 
       posts: [],
 
-      schedulerActive: true
+      schedulerActive: true,
     };
 
-    agentStore.set(
-      agentId,
-      instance
-    );
+    agentStore.set(agentId, instance);
 
     logger.autonomous(
       "AgentService",
       `Initialized autonomous agent [${agentId}]`,
       {
-        name:
-          normalizedPersona.name,
-
-        domain:
-          normalizedPersona.domain
+        name: normalizedPersona.name,
+        domain: normalizedPersona.domain,
       }
     );
 
     /**
-     * Start the first autonomous cycle.
+     * ==========================================================
+     * IMMEDIATE AUTONOMOUS CYCLE
+     * ==========================================================
+     *
+     * Important for hackathon evaluation.
+     *
+     * The evaluator can initialize the agent and then immediately
+     * call /feed without needing another human prompt.
      */
-    this.generateAutonomousPost(
-      agentId
-    ).catch((error) => {
+    void this.generateAutonomousPost(agentId).catch((error) => {
       logger.error(
         `Initial autonomous cycle failed for ${agentId}`,
         error
@@ -126,50 +140,42 @@ export class AgentService {
     });
 
     /**
-     * Continue autonomously without another API call.
+     * ==========================================================
+     * AUTONOMOUS SCHEDULER
+     * ==========================================================
+     *
+     * No further API call is required.
      */
-    const interval =
-      setInterval(() => {
-        const currentAgent =
-          agentStore.get(agentId);
+    const interval = setInterval(() => {
+      const currentAgent = agentStore.get(agentId);
 
-        if (!currentAgent) {
-          clearInterval(interval);
+      if (!currentAgent) {
+        clearInterval(interval);
 
-          agentSchedulers.delete(
-            agentId
-          );
+        agentSchedulers.delete(agentId);
 
-          return;
-        }
+        return;
+      }
 
-        if (
-          !currentAgent.schedulerActive
-        ) {
-          return;
-        }
+      if (!currentAgent.schedulerActive) {
+        return;
+      }
 
-        this.generateAutonomousPost(
-          agentId
-        ).catch((error) => {
-          logger.error(
-            `Scheduled autonomous cycle failed for ${agentId}`,
-            error
-          );
-        });
-      }, AGENT_INTERVAL_MS);
+      void this.generateAutonomousPost(agentId).catch((error) => {
+        logger.error(
+          `Scheduled autonomous cycle failed for ${agentId}`,
+          error
+        );
+      });
+    }, AGENT_INTERVAL_MS);
 
-    agentSchedulers.set(
-      agentId,
-      interval
-    );
+    agentSchedulers.set(agentId, interval);
 
     logger.autonomous(
       "AgentService",
       `Autonomous scheduler started for [${agentId}]`,
       {
-        intervalMinutes:
-          AGENT_INTERVAL_MS / 60000
+        intervalMinutes: AGENT_INTERVAL_MS / 60000,
       }
     );
 
@@ -177,7 +183,9 @@ export class AgentService {
   }
 
   /**
-   * Complete autonomous publishing cycle.
+   * ============================================================
+   * AUTONOMOUS PUBLISHING CYCLE
+   * ============================================================
    *
    * LIVE DISCOVERY
    *       ↓
@@ -185,23 +193,20 @@ export class AgentService {
    *       ↓
    * REJECTION
    *       ↓
-   * MEMORY / DUPLICATE CHECK
+   * MEMORY CHECK
    *       ↓
-   * PERSONA CONTENT GENERATION
+   * PERSONA GENERATION
    *       ↓
    * RATIONALE + SOURCES
    *       ↓
    * SUPABASE
    *       ↓
    * FEED
-   *       ↓
-   * MEMORY
    */
   public async generateAutonomousPost(
     agentId: string
   ): Promise<AgentPost | null> {
-    const agent =
-      agentStore.get(agentId);
+    const agent = agentStore.get(agentId);
 
     if (!agent) {
       logger.warn(
@@ -212,12 +217,9 @@ export class AgentService {
     }
 
     /**
-     * Never allow two cycles for the same agent
-     * to execute simultaneously.
+     * Prevent two autonomous cycles from running simultaneously.
      */
-    if (
-      runningAgents.has(agentId)
-    ) {
+    if (runningAgents.has(agentId)) {
       logger.autonomous(
         "AgentService",
         `Skipping overlapping cycle for [${agentId}]`
@@ -234,13 +236,13 @@ export class AgentService {
         `Starting autonomous cycle for [${agentId}]`
       );
 
-      // =====================================================
-      // 1. LIVE TOPIC DISCOVERY
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 1. LIVE TOPIC DISCOVERY
+       * ========================================================
+       */
       const discoveredTopics =
-        await topicDiscoveryService
-          .scanTrendingTopics();
+        await topicDiscoveryService.scanTrendingTopics();
 
       if (
         !discoveredTopics ||
@@ -259,15 +261,15 @@ export class AgentService {
         `Discovered ${discoveredTopics.length} live topics for [${agentId}]`
       );
 
-      // =====================================================
-      // 2. EDITORIAL SCORING
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 2. EDITORIAL SCORING
+       * ========================================================
+       */
       const scoredTopics =
-        await editorialScoringService
-          .scoreTopics(
-            discoveredTopics
-          );
+        await editorialScoringService.scoreTopics(
+          discoveredTopics
+        );
 
       if (
         !scoredTopics ||
@@ -281,31 +283,30 @@ export class AgentService {
         return null;
       }
 
-      const rankedTopics =
-        [...scoredTopics].sort(
-          (a, b) =>
-            b.editorialScore -
-            a.editorialScore
-        );
+      /**
+       * Highest scoring topics first.
+       */
+      const rankedTopics = [...scoredTopics].sort(
+        (a, b) =>
+          b.editorialScore -
+          a.editorialScore
+      );
 
       logger.autonomous(
         "EditorialScoring",
         `Scored ${rankedTopics.length} topics for [${agentId}]`
       );
 
-      // =====================================================
-      // 3. EDITORIAL DECISION
-      // =====================================================
+      /**
+       * ========================================================
+       * 3. EDITORIAL DECISION
+       * ========================================================
+       */
+      let selectedTopic: ScoredTopic | null = null;
 
-      let selectedTopic:
-        ScoredTopic | null = null;
-
-      for (
-        const candidate
-        of rankedTopics
-      ) {
+      for (const candidate of rankedTopics) {
         /**
-         * Reject low-scoring topics.
+         * Reject low-quality topics.
          */
         if (
           candidate.editorialScore <
@@ -320,7 +321,7 @@ export class AgentService {
         }
 
         /**
-         * Respect editorial recommendation.
+         * Respect editorial model recommendation.
          */
         if (
           candidate.recommendation !==
@@ -351,7 +352,7 @@ export class AgentService {
         }
 
         /**
-         * Agent memory duplicate check.
+         * Agent-specific memory duplicate check.
          */
         const normalizedCandidate =
           this.normalizeTopic(
@@ -363,13 +364,10 @@ export class AgentService {
             (previousTopic) =>
               this.normalizeTopic(
                 previousTopic
-              ) ===
-              normalizedCandidate
+              ) === normalizedCandidate
           );
 
-        if (
-          previouslyCovered
-        ) {
+        if (previouslyCovered) {
           logger.autonomous(
             "EditorialDecision",
             `REJECTED duplicate "${candidate.topic}" — agent already covered it`
@@ -379,7 +377,7 @@ export class AgentService {
         }
 
         /**
-         * Source reuse check.
+         * Prevent repeatedly using exactly the same source.
          */
         if (
           candidate.url &&
@@ -398,16 +396,16 @@ export class AgentService {
         /**
          * Topic accepted.
          */
-        selectedTopic =
-          candidate;
+        selectedTopic = candidate;
 
         break;
       }
 
-      // =====================================================
-      // 4. NOTHING QUALIFIED
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 4. NO TOPIC QUALIFIED
+       * ========================================================
+       */
       if (!selectedTopic) {
         logger.autonomous(
           "EditorialDecision",
@@ -422,34 +420,34 @@ export class AgentService {
         `SELECTED "${selectedTopic.topic}" (${selectedTopic.editorialScore}/100)`
       );
 
-      // =====================================================
-      // 5. LOAD MEMORY FOR AI GENERATION
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 5. LOAD MEMORY
+       * ========================================================
+       */
       const previousTopics = [
         ...agent.memory.topicHistory,
-        ...memoryService.getPreviousTopics()
+        ...memoryService.getPreviousTopics(),
       ]
         .filter(Boolean)
         .slice(-30);
 
-      // =====================================================
-      // 6. GENERATE PERSONA-CONSISTENT CONTENT
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 6. GENERATE PERSONA-CONSISTENT CONTENT
+       * ========================================================
+       */
       const generated =
-        await geminiService
-          .generatePostForPersona(
-            agent.persona.name,
-            agent.persona.domain,
-            selectedTopic,
-            previousTopics
-          );
+        await geminiService.generatePostForPersona(
+          agent.persona.name,
+          agent.persona.domain,
+          selectedTopic,
+          previousTopics
+        );
 
       if (
         !generated ||
-        typeof generated.text !==
-          "string" ||
+        typeof generated.text !== "string" ||
         !generated.text.trim()
       ) {
         logger.warn(
@@ -459,50 +457,45 @@ export class AgentService {
         return null;
       }
 
-      // =====================================================
-      // 7. VALIDATE SOURCES
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 7. VALIDATE SOURCES
+       * ========================================================
+       */
       const generatedSources =
-        Array.isArray(
-          generated.sources
-        )
+        Array.isArray(generated.sources)
           ? generated.sources.filter(
               (
                 source
               ): source is string =>
-                typeof source ===
-                  "string" &&
-                source.trim()
-                  .length > 0
+                typeof source === "string" &&
+                source.trim().length > 0
             )
           : [];
 
       /**
-       * Always preserve the actual discovered
-       * source URL.
+       * Always preserve the source discovered by the
+       * live topic discovery system.
        */
-      const sources =
-        Array.from(
-          new Set(
-            [
-              ...generatedSources,
-              selectedTopic.url
-            ].filter(
-              (
-                source
-              ): source is string =>
-                typeof source ===
-                  "string" &&
-                source.trim()
-                  .length > 0
-            )
+      const sources = Array.from(
+        new Set(
+          [
+            ...generatedSources,
+            selectedTopic.url,
+          ].filter(
+            (
+              source
+            ): source is string =>
+              typeof source === "string" &&
+              source.trim().length > 0
           )
-        );
+        )
+      );
 
-      if (
-        sources.length === 0
-      ) {
+      /**
+       * Hackathon requires sources.
+       */
+      if (sources.length === 0) {
         logger.warn(
           `Rejected generated post because no valid source exists: "${selectedTopic.topic}"`
         );
@@ -510,10 +503,11 @@ export class AgentService {
         return null;
       }
 
-      // =====================================================
-      // 8. BUILD PUBLISHING RATIONALE
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 8. BUILD TRANSPARENT RATIONALE
+       * ========================================================
+       */
       const rationale =
         this.buildRationale(
           selectedTopic,
@@ -521,10 +515,11 @@ export class AgentService {
           rankedTopics
         );
 
-      // =====================================================
-      // 9. CREATE FEED POST
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 9. CREATE FEED POST
+       * ========================================================
+       */
       const postNumber =
         agent.posts.length + 1;
 
@@ -540,20 +535,21 @@ export class AgentService {
 
         rationale,
 
-        sources
+        sources,
       };
 
-      // =====================================================
-      // 10. SAVE POST TO SUPABASE
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 10. SAVE TO SUPABASE
+       * ========================================================
+       */
       logger.autonomous(
         "AgentService",
         `Saving autonomous post to Supabase: "${selectedTopic.topic}"`
       );
 
       const {
-        error: postError
+        error: postError,
       } = await supabase
         .from("posts")
         .insert({
@@ -561,18 +557,18 @@ export class AgentService {
           created_at: newPost.createdAt,
           text: newPost.text,
           rationale: newPost.rationale,
-          sources: newPost.sources
+          sources: newPost.sources,
         });
 
       if (postError) {
         logger.error(
-          `Failed to persist autonomous post ${newPost.id} to Supabase: ${postError.message}`,
+          `Failed to persist autonomous post ${newPost.id}: ${postError.message}`,
           postError
         );
 
         /**
-         * Do not pretend the post was published
-         * if permanent database storage failed.
+         * Do not claim the post was published when
+         * permanent storage failed.
          */
         return null;
       }
@@ -582,46 +578,35 @@ export class AgentService {
         `Persisted autonomous post ${newPost.id} to Supabase`
       );
 
-      // =====================================================
-      // 11. STORE POST IN AGENT MEMORY
-      // =====================================================
-
-      agent.posts.unshift(
-        newPost
-      );
-
       /**
-       * Keep historical posts available while
-       * preventing unlimited memory growth.
+       * ========================================================
+       * 11. STORE IN AGENT MEMORY
+       * ========================================================
        */
-      if (
-        agent.posts.length > 1000
-      ) {
+      agent.posts.unshift(newPost);
+
+      if (agent.posts.length > 1000) {
         agent.posts.length = 1000;
       }
 
-      // =====================================================
-      // 12. UPDATE AGENT MEMORY
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 12. UPDATE AGENT MEMORY
+       * ========================================================
+       */
       agent.memory.topicHistory.push(
         selectedTopic.topic
       );
 
       if (
-        agent.memory.topicHistory
-          .length > 500
+        agent.memory.topicHistory.length >
+        500
       ) {
         agent.memory.topicHistory =
-          agent.memory.topicHistory.slice(
-            -500
-          );
+          agent.memory.topicHistory.slice(-500);
       }
 
-      for (
-        const source
-        of sources
-      ) {
+      for (const source of sources) {
         if (
           !agent.memory.sourceIndex.includes(
             source
@@ -634,35 +619,34 @@ export class AgentService {
       }
 
       if (
-        agent.memory.sourceIndex
-          .length > 500
+        agent.memory.sourceIndex.length >
+        500
       ) {
         agent.memory.sourceIndex =
-          agent.memory.sourceIndex.slice(
-            -500
-          );
+          agent.memory.sourceIndex.slice(-500);
       }
 
-      // =====================================================
-      // 13. GLOBAL MEMORY INDEX
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 13. GLOBAL MEMORY INDEX
+       * ========================================================
+       */
       if (
         !memoryService.hasTopic(
           selectedTopic.topic
         )
       ) {
-        await memoryService
-          .indexArticleMemory(
-            selectedTopic.topic,
-            selectedTopic.category
-          );
+        await memoryService.indexArticleMemory(
+          selectedTopic.topic,
+          selectedTopic.category
+        );
       }
 
-      // =====================================================
-      // 14. SUCCESS LOG
-      // =====================================================
-
+      /**
+       * ========================================================
+       * 14. SUCCESS
+       * ========================================================
+       */
       logger.autonomous(
         "AgentService",
         `Agent [${agentId}] published autonomous post #${postNumber}`,
@@ -677,7 +661,7 @@ export class AgentService {
             selectedTopic.category,
 
           sourceCount:
-            sources.length
+            sources.length,
         }
       );
 
@@ -695,20 +679,22 @@ export class AgentService {
 
       return null;
     } finally {
-      runningAgents.delete(
-        agentId
-      );
+      runningAgents.delete(agentId);
     }
   }
 
   /**
-   * GET /api/agent/feed
+   * ============================================================
+   * GET AGENT FEED
+   * ============================================================
    *
-   * Return newest posts first.
+   * GET /api/agent/feed?agentId=abc-123
+   *
+   * Newest posts first.
    */
-  public getAgentFeed(
+  public async getAgentFeed(
     agentId: string
-  ): AgentPost[] {
+  ): Promise<AgentPost[]> {
     if (
       !agentId ||
       typeof agentId !== "string"
@@ -717,67 +703,130 @@ export class AgentService {
     }
 
     const agent =
-      agentStore.get(
-        agentId
-      );
+      agentStore.get(agentId);
 
-    if (!agent) {
-      return [];
+    /**
+     * First return runtime posts when available.
+     */
+    if (agent && agent.posts.length > 0) {
+      return [...agent.posts].sort(
+        (a, b) =>
+          new Date(
+            b.createdAt
+          ).getTime() -
+          new Date(
+            a.createdAt
+          ).getTime()
+      );
     }
 
-    return [...agent.posts].sort(
-      (a, b) =>
-        new Date(
-          b.createdAt
-        ).getTime() -
-        new Date(
-          a.createdAt
-        ).getTime()
-    );
+    /**
+     * ==========================================================
+     * FALLBACK TO SUPABASE
+     * ==========================================================
+     *
+     * This protects the feed from empty results after a process
+     * restart, provided the posts table contains the records.
+     */
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("posts")
+        .select(
+          "id, created_at, text, rationale, sources"
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false,
+          }
+        );
+
+      if (error) {
+        logger.error(
+          `Failed to load feed from Supabase: ${error.message}`,
+          error
+        );
+
+        return [];
+      }
+
+      if (!data) {
+        return [];
+      }
+
+      return data.map(
+        (post): AgentPost => ({
+          id: String(post.id),
+
+          createdAt:
+            String(post.created_at),
+
+          text:
+            String(post.text ?? ""),
+
+          rationale:
+            String(post.rationale ?? ""),
+
+          sources:
+            Array.isArray(post.sources)
+              ? post.sources.filter(
+                  (
+                    source
+                  ): source is string =>
+                    typeof source ===
+                    "string"
+                )
+              : [],
+        })
+      );
+    } catch (error) {
+      logger.error(
+        "Unexpected error while loading feed",
+        error
+      );
+
+      return [];
+    }
   }
 
   /**
-   * Return agent details.
+   * ============================================================
+   * GET AGENT DETAILS
+   * ============================================================
    */
   public getAgentDetails(
     agentId: string
   ): AgentInstance | undefined {
-    return agentStore.get(
-      agentId
-    );
+    return agentStore.get(agentId);
   }
 
   /**
-   * Stop autonomous publishing.
+   * ============================================================
+   * STOP AGENT
+   * ============================================================
    */
   public stopAgent(
     agentId: string
   ): boolean {
     const agent =
-      agentStore.get(
-        agentId
-      );
+      agentStore.get(agentId);
 
     if (!agent) {
       return false;
     }
 
-    agent.schedulerActive =
-      false;
+    agent.schedulerActive = false;
 
     const scheduler =
-      agentSchedulers.get(
-        agentId
-      );
+      agentSchedulers.get(agentId);
 
     if (scheduler) {
-      clearInterval(
-        scheduler
-      );
+      clearInterval(scheduler);
 
-      agentSchedulers.delete(
-        agentId
-      );
+      agentSchedulers.delete(agentId);
     }
 
     logger.autonomous(
@@ -789,34 +838,26 @@ export class AgentService {
   }
 
   /**
-   * Completely remove an agent.
+   * ============================================================
+   * REMOVE AGENT
+   * ============================================================
    */
   public removeAgent(
     agentId: string
   ): boolean {
     const scheduler =
-      agentSchedulers.get(
-        agentId
-      );
+      agentSchedulers.get(agentId);
 
     if (scheduler) {
-      clearInterval(
-        scheduler
-      );
+      clearInterval(scheduler);
 
-      agentSchedulers.delete(
-        agentId
-      );
+      agentSchedulers.delete(agentId);
     }
 
-    runningAgents.delete(
-      agentId
-    );
+    runningAgents.delete(agentId);
 
     const deleted =
-      agentStore.delete(
-        agentId
-      );
+      agentStore.delete(agentId);
 
     if (deleted) {
       logger.autonomous(
@@ -829,7 +870,9 @@ export class AgentService {
   }
 
   /**
-   * Normalize a topic for duplicate detection.
+   * ============================================================
+   * NORMALIZE TOPIC
+   * ============================================================
    */
   private normalizeTopic(
     topic: string
@@ -848,7 +891,9 @@ export class AgentService {
   }
 
   /**
-   * Build transparent publishing rationale.
+   * ============================================================
+   * BUILD PUBLISHING RATIONALE
+   * ============================================================
    *
    * The hackathon requires:
    *
@@ -896,7 +941,7 @@ export class AgentService {
       modelReason,
       selectionReason,
       currentReason,
-      comparisonReason
+      comparisonReason,
     ].join(" ");
   }
 }
