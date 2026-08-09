@@ -17,7 +17,7 @@ export class AutonomousSchedulerService {
      *
      * Topics below this score are intentionally rejected.
      */
-    private readonly PUBLISH_THRESHOLD = 75;
+    private readonly PUBLISH_THRESHOLD = 65;
 
     /**
      * Prevents multiple autonomous workflows from running

@@ -257,7 +257,7 @@ export class EditorialScoringService {
             | 'REJECT';
 
         if (
-            editorialScore >= 75 &&
+            editorialScore >= 65 &&
             relevance >= 55 &&
             novelty >= 50
         ) {

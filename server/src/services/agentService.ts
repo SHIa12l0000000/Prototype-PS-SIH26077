@@ -61,7 +61,7 @@ const AGENT_INTERVAL_MS = 15 * 60 * 1000;
 /**
  * Minimum editorial score required for publishing.
  */
-const AGENT_PUBLISH_THRESHOLD = 75;
+const AGENT_PUBLISH_THRESHOLD = 65;
 
 export class AgentService {
   /**
