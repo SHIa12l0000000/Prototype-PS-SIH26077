@@ -17,7 +17,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-6 text-slate-400">
-          <a href="/api/health" target="_blank" rel="noopener noreferrer" className="hover:text-cyan-400 flex items-center gap-1">
+          <a href="https://techpulse-ai-production-4086.up.railway.app/api/health" target="_blank" rel="noopener noreferrer" className="hover:text-cyan-400 flex items-center gap-1">
             <span>API Health Check</span> <ExternalLink className="w-3 h-3" />
           </a>
           <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-400 flex items-center gap-1">
@@ -35,3 +35,4 @@ export const Footer: React.FC = () => {
     </footer>
   );
 };
+
