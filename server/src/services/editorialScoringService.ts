@@ -117,8 +117,26 @@ export class EditorialScoringService {
             'open source',
             'developer',
             'mcp',
-            'model context protocol'
-        ];
+            'model context protocol',
+        'cybersecurity',
+        'cyber security',
+        'safety',
+        'safeguards',
+        'evaluation',
+        'evaluations',
+        'forecasting',
+        'climate',
+        'model',
+        'models',
+        'chatgpt',
+        'gemini',
+        'enterprise',
+        'productivity',
+        'computer use',
+        'voice ai',
+        'video generation',
+        'code generation'
+    ];
 
         const organizationMatches =
             this.countMatches(
@@ -242,9 +260,9 @@ export class EditorialScoringService {
             Math.round(
                 relevance * 0.30 +
                 novelty * 0.25 +
-                velocityScore * 0.20 +
+                velocityScore * 0.15 +
                 sourceScore * 0.15 +
-                impactScore * 0.10
+                impactScore * 0.15
             );
 
         // =========================================================
@@ -498,8 +516,25 @@ export class EditorialScoringService {
             'open-weight',
             'multimodal',
             'security',
-            'safety'
-        ];
+            'safety',
+        'cybersecurity',
+        'cyber security',
+        'evaluation',
+        'evaluations',
+        'forecasting',
+        'climate',
+        'model',
+        'models',
+        'chatgpt',
+        'gemini',
+        'computer use',
+        'voice ai',
+        'video generation',
+        'code generation',
+        'productivity',
+        'enterprise',
+        'safeguards'
+    ];
 
         const mediumImpactTerms = [
             'update',
@@ -564,3 +599,5 @@ export class EditorialScoringService {
 
 export const editorialScoringService =
     new EditorialScoringService();
+
+
