@@ -275,9 +275,7 @@ export class EditorialScoringService {
             | 'REJECT';
 
         if (
-            editorialScore >= 65 &&
-            relevance >= 55 &&
-            novelty >= 50
+            (editorialScore >= 70 && relevance >= 50 && novelty >= 45) || (editorialScore >= 60 && relevance >= 55 && novelty >= 50)
         ) {
             recommendation =
                 'PUBLISH';
@@ -599,5 +597,3 @@ export class EditorialScoringService {
 
 export const editorialScoringService =
     new EditorialScoringService();
-
-
