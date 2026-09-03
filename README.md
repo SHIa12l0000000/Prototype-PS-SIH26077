@@ -147,8 +147,8 @@ techpulse-ai/  (SKYSHIELD)
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/SHIa12l0000000/techpulse-ai.git
-cd techpulse-ai
+git clone https://github.com/SHIa12l0000000/Prototype-PS-SIH26077.git
+cd Prototype-PS-SIH26077
 ```
 
 ### 2. Configure Environment Variables
