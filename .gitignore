@@ -1,25 +1,33 @@
-# Dependencies
+# Node / Vite / Frontend
 node_modules/
-client/node_modules/
-server/node_modules/
-
-# Build output
 dist/
 build/
-
-# Environment variables
-.env
-.env.local
-client/.env
-server/.env
-
-# Logs
+.vite/
 *.log
 
-# OS files
-.DS_Store
-Thumbs.db
+# Python / FastAPI / Backend
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+ENV/
+*.sqlite3
+*.db
 
-# Editor
+# Environment & Secrets
+.env
+.env.local
+
+# IDE
 .vscode/
 .idea/
+*.swp
+
+# Scratch scripts & Archives
+send_live_sms.py
+provision_twilio.py
+test_twilio.py
+*.zip
