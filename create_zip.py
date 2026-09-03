@@ -8,7 +8,6 @@ def make_clean_zip():
     # Exclude directories and patterns
     exclude_dirs = {
         'node_modules',
-        'dist',
         '.git',
         '__pycache__',
         '.pytest_cache',

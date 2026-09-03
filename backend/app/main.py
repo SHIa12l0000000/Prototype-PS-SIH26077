@@ -60,16 +60,22 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include API router
 app.include_router(api_router)
 
-@app.get("/")
-async def root():
-    return {
-        "title": settings.PROJECT_NAME,
-        "subtitle": "Hyper-Local Severe Weather Early Warning System (SIH 26077)",
-        "organization": "Ministry of Earth Sciences (MoES) / NCMRWF",
-        "status": "OPERATIONAL",
-        "api_docs": "/docs",
-        "health_check": "/api/health"
-    }
+# Serve pre-built React frontend if frontend/dist exists
+from fastapi.staticfiles import StaticFiles
+dist_dir = repo_root / "frontend" / "dist"
+if dist_dir.exists():
+    app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="static")
+else:
+    @app.get("/")
+    async def root():
+        return {
+            "title": settings.PROJECT_NAME,
+            "subtitle": "Hyper-Local Severe Weather Early Warning System (SIH 26077)",
+            "organization": "Ministry of Earth Sciences (MoES) / NCMRWF",
+            "status": "OPERATIONAL",
+            "api_docs": "/docs",
+            "health_check": "/api/health"
+        }
 
 if __name__ == "__main__":
     import uvicorn

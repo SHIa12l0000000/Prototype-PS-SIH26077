@@ -8,6 +8,7 @@
     "dev:backend": "python -m uvicorn backend.app.main:app --reload --port 8000",
     "dev:frontend": "npm run dev --prefix frontend",
     "build": "npm run build --prefix frontend",
+    "postinstall": "npm install --prefix frontend",
     "install:all": "pip install -r backend/requirements.txt && npm install --prefix frontend"
   },
   "devDependencies": {
