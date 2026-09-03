@@ -1,8 +1,8 @@
 {
-  "name": "weatherguard-ai",
+  "name": "skyshield",
   "version": "1.0.0",
   "private": true,
-  "description": "WeatherGuard AI — SIH 26077 Prototype Command Center",
+  "description": "SKYSHIELD — Severe Weather Nowcast & Hyper-Local Early Warning System (SIH 26077)",
   "scripts": {
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"yellow,cyan\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "python -m uvicorn backend.app.main:app --reload --port 8000",
