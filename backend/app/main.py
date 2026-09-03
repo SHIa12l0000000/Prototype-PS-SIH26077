@@ -1,9 +1,24 @@
+import os
+import sys
+from pathlib import Path
+
+# Enable direct script execution from VS Code ("Run Python File")
+current_dir = Path(__file__).resolve().parent
+repo_root = current_dir.parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
-from .config import settings
-from .routes.api import router as api_router
+
+try:
+    from .config import settings
+    from .routes.api import router as api_router
+except (ImportError, ValueError):
+    from backend.app.config import settings
+    from backend.app.routes.api import router as api_router
 
 logging.basicConfig(
     level=logging.INFO,
