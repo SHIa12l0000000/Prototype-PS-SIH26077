@@ -15,7 +15,9 @@ def make_clean_zip():
         '.vite',
         'venv',
         '.idea',
-        '.vscode'
+        '.vscode',
+        'client',
+        'server'
     }
     exclude_exts = {'.pyc', '.zip'}
 

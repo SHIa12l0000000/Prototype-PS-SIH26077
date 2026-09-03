@@ -1,0 +1,34 @@
+========================================================================
+  SKYSHIELD — Severe Weather Nowcast (SIH 26077)
+  How to Run the Project (Step-by-Step)
+========================================================================
+
+OPTION 1: THE EASIEST WAY (Double-Click on Windows)
+--------------------------------------------------
+1. Double-click "start-backend.bat" -> Starts Python backend on http://127.0.0.1:8000
+2. Double-click "start-frontend.bat" -> Starts React UI on http://localhost:3000
+3. Open http://localhost:3000 in your browser!
+
+
+OPTION 2: IN VS CODE TERMINAL
+--------------------------------------------------
+1. Open terminal (Ctrl + ~)
+2. Run backend (Terminal 1):
+     pip install -r backend/requirements.txt
+     python -m uvicorn backend.app.main:app --reload --port 8000
+
+3. Open a second terminal tab (+ icon) and run frontend (Terminal 2):
+     cd frontend
+     npm install
+     npm run dev
+
+4. Open http://localhost:3000 in Chrome or Edge!
+
+
+WHY WAS THE SCREEN WHITE?
+--------------------------------------------------
+* Do NOT double-click "frontend/index.html" directly in File Explorer.
+  Because Vite uses modern ES Modules, opening index.html as a file will
+  show a blank white screen due to browser security (CORS).
+  You MUST run "npm run dev" and open "http://localhost:3000" in your browser!
+========================================================================
