@@ -24,28 +24,32 @@ export const MapPage: React.FC = () => {
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: getMapStyle(activeLayer),
-      center: [selectedLocation.longitude, selectedLocation.latitude],
-      zoom: 10
-    });
+    try {
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: getMapStyle(activeLayer),
+        center: [selectedLocation.longitude, selectedLocation.latitude],
+        zoom: 10
+      });
 
-    const markerNode = document.createElement('div');
-    markerNode.innerHTML = `<div class="relative flex items-center justify-center w-5 h-5">
-      <span class="absolute w-5 h-5 bg-[#2874f0]/30 rounded-full animate-ping"></span>
-      <span class="w-3 h-3 bg-[#2874f0] border-2 border-white rounded-full shadow-md"></span>
-    </div>`;
+      const markerNode = document.createElement('div');
+      markerNode.innerHTML = `<div class="relative flex items-center justify-center w-5 h-5">
+        <span class="absolute w-5 h-5 bg-[#2874f0]/30 rounded-full animate-ping"></span>
+        <span class="w-3 h-3 bg-[#2874f0] border-2 border-white rounded-full shadow-md"></span>
+      </div>`;
 
-    new maplibregl.Marker({ element: markerNode })
-      .setLngLat([selectedLocation.longitude, selectedLocation.latitude])
-      .addTo(map);
+      new maplibregl.Marker({ element: markerNode })
+        .setLngLat([selectedLocation.longitude, selectedLocation.latitude])
+        .addTo(map);
 
-    mapRef.current = map;
+      mapRef.current = map;
 
-    return () => {
-      map.remove();
-    };
+      return () => {
+        map.remove();
+      };
+    } catch (err) {
+      console.warn('Could not initialize map canvas in MapPage:', err);
+    }
   }, [selectedLocation, activeLayer]);
 
   return (

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { LocationResult, WeatherResponse, RiskPrediction, AlertItem, PageId } from '../types';
 import { fetchWeather, fetchRiskPrediction, fetchAlerts, acknowledgeAlert } from '../services/api';
-import { DEMO_LOCATION } from '../services/demoData';
+import { DEMO_LOCATION, DEMO_WEATHER, DEMO_RISK_PREDICTION, DEMO_ALERTS } from '../services/demoData';
 
 interface AppContextType {
   currentPage: PageId;
@@ -24,11 +24,11 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<PageId>('overview');
   const [selectedLocation, setSelectedLocation] = useState<LocationResult>(DEMO_LOCATION);
-  const [weather, setWeather] = useState<WeatherResponse | null>(null);
-  const [riskPrediction, setRiskPrediction] = useState<RiskPrediction | null>(null);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [weather, setWeather] = useState<WeatherResponse | null>(DEMO_WEATHER);
+  const [riskPrediction, setRiskPrediction] = useState<RiskPrediction | null>(DEMO_RISK_PREDICTION);
+  const [alerts, setAlerts] = useState<AlertItem[]>(DEMO_ALERTS);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toLocaleTimeString());
 
   const loadData = useCallback(async (loc: LocationResult, demo: boolean) => {

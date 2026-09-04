@@ -58,9 +58,13 @@ export const Header: React.FC = () => {
       <div className="bg-[#2874f0] px-4 py-0" style={{ minHeight: 56 }}>
         <div className="max-w-screen-2xl mx-auto flex items-center gap-4 h-14">
 
-          {/* Logo */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="bg-white rounded p-1">
+          {/* Logo (Clickable -> Overview) */}
+          <div
+            onClick={() => setCurrentPage('overview')}
+            className="flex items-center gap-2 shrink-0 cursor-pointer hover:opacity-95 transition-opacity"
+            title="SKYSHIELD Home"
+          >
+            <div className="bg-white rounded p-1 shadow-sm">
               <ShieldAlert className="w-5 h-5 text-[#2874f0]" />
             </div>
             <div className="leading-tight">
@@ -155,40 +159,56 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-        {/* ── Secondary Nav Bar (Flipkart/Amazon category strip) ── */}
+      {/* ── Secondary Quick Location & Alert Ticker Strip ── */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-screen-2xl mx-auto px-4 flex items-center justify-between h-10">
-          <div className="flex items-center gap-1 text-xs font-semibold text-[#212121] overflow-x-auto scrollbar-hide">
-            {([
-              { label: 'COMMAND CENTER',   page: 'overview'    },
-              { label: 'RISK MAP',         page: 'map'         },
-              { label: 'WEATHER DATA',     page: 'weather'     },
-              { label: 'ALERTS',           page: 'alerts'      },
-              { label: 'AI ANALYSIS',      page: 'xai'         },
-              { label: 'SATELLITE & RADAR',page: 'satellite'   },
-              { label: 'ANALYTICS',        page: 'analytics'   },
-              { label: 'DATA SOURCES',     page: 'datasources' },
-              { label: 'SYSTEM STATUS',    page: 'status'      },
-            ] as { label: string; page: import('../types').PageId }[]).map(({ label, page }) => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={`px-3 py-2 whitespace-nowrap transition-colors border-b-2 ${
-                  currentPage === page
-                    ? 'text-[#2874f0] border-[#2874f0] font-bold'
-                    : 'border-transparent hover:text-[#2874f0] hover:border-[#2874f0]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        <div className="max-w-screen-2xl mx-auto px-4 flex items-center justify-between h-10 gap-3">
+          {/* Quick city selectors */}
+          <div className="flex items-center gap-1.5 text-xs overflow-x-auto scrollbar-hide py-1">
+            <span className="text-[10px] font-bold text-[#878787] uppercase shrink-0 mr-1">QUICK CITIES:</span>
+            {[
+              { name: 'Ghaziabad', state: 'Uttar Pradesh', district: 'Ghaziabad', country: 'India', elevation_m: 214, latitude: 28.6692, longitude: 77.4538 },
+              { name: 'New Delhi', state: 'Delhi', district: 'Central Delhi', country: 'India', elevation_m: 216, latitude: 28.6139, longitude: 77.2090 },
+              { name: 'Noida', state: 'Uttar Pradesh', district: 'Gautam Buddha Nagar', country: 'India', elevation_m: 200, latitude: 28.5355, longitude: 77.3910 },
+              { name: 'Dehradun', state: 'Uttarakhand', district: 'Dehradun', country: 'India', elevation_m: 640, latitude: 30.3165, longitude: 78.0322 },
+              { name: 'Shimla', state: 'Himachal Pradesh', district: 'Shimla', country: 'India', elevation_m: 2276, latitude: 31.1048, longitude: 77.1734 },
+              { name: 'Mumbai', state: 'Maharashtra', district: 'Mumbai', country: 'India', elevation_m: 14, latitude: 19.0760, longitude: 72.8777 },
+              { name: 'Kolkata', state: 'West Bengal', district: 'Kolkata', country: 'India', elevation_m: 9, latitude: 22.5726, longitude: 88.3639 },
+            ].map(loc => {
+              const isSelected = selectedLocation.name.toLowerCase() === loc.name.toLowerCase();
+              return (
+                <button
+                  key={loc.name}
+                  onClick={() => selectLocation(loc)}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1 ${
+                    isSelected
+                      ? 'bg-[#2874f0] text-white shadow-sm'
+                      : 'bg-[#f7f7f7] text-[#212121] hover:bg-[#e8f0fe] hover:text-[#2874f0] border border-gray-200'
+                  }`}
+                >
+                  <MapPin className="w-3 h-3 shrink-0" />
+                  {loc.name}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Updated timestamp */}
-          <div className="hidden md:flex items-center gap-1.5 text-xs text-[#878787] shrink-0 ml-4">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#388e3c]"></span>
-            Updated: <span className="font-semibold text-[#212121]">{lastUpdated} IST</span>
-            <span className="ml-2 text-[10px] bg-[#f7f7f7] border border-gray-200 px-2 py-0.5 rounded font-bold text-[#878787]">PROTOTYPE</span>
+          {/* Right strip: Active Alert badge + timestamp */}
+          <div className="flex items-center gap-2 shrink-0">
+            {activeAlerts > 0 && (
+              <button
+                onClick={() => setCurrentPage('alerts')}
+                className="inline-flex items-center gap-1 text-[11px] font-bold bg-[#ffeaea] text-[#d32f2f] border border-[#ff6161]/40 px-2 py-0.5 rounded cursor-pointer hover:bg-[#ffd9d9] transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#d32f2f] animate-ping"></span>
+                {activeAlerts} ACTIVE ALERT{activeAlerts > 1 ? 'S' : ''}
+              </button>
+            )}
+
+            <div className="hidden lg:flex items-center gap-1 text-xs text-[#878787]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#388e3c]"></span>
+              Updated: <span className="font-semibold text-[#212121]">{lastUpdated} IST</span>
+              <span className="ml-1 text-[10px] bg-[#f7f7f7] border border-gray-200 px-1.5 py-0.5 rounded font-bold text-[#878787]">PROTOTYPE</span>
+            </div>
           </div>
         </div>
       </div>

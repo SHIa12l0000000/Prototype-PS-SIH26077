@@ -26,21 +26,25 @@ export const OverviewPage: React.FC = () => {
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const [mapMode, setMapMode] = useState<'risk' | 'radar'>('risk');
 
-  /* ── MapLibre Init ── */
+  /* ── MapLibre Init (Defensively wrapped against WebGL / Electron WebView failures) ── */
   useEffect(() => {
     if (!mapRef.current) return;
-    const MAPTILER_KEY = '1GQzgEX7j1lxGfoYh4hq';
-    const map = new maplibregl.Map({
-      container: mapRef.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
-      center: [selectedLocation.longitude, selectedLocation.latitude],
-      zoom: 9
-    });
-    const el = document.createElement('div');
-    el.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;width:20px;height:20px;"><span style="position:absolute;width:20px;height:20px;border-radius:50%;background:#2874f033;animation:ping 1.5s infinite"></span><span style="width:10px;height:10px;border-radius:50%;background:#2874f0;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)"></span></span>`;
-    new maplibregl.Marker({ element: el }).setLngLat([selectedLocation.longitude, selectedLocation.latitude]).addTo(map);
-    mapInstance.current = map;
-    return () => map.remove();
+    try {
+      const MAPTILER_KEY = '1GQzgEX7j1lxGfoYh4hq';
+      const map = new maplibregl.Map({
+        container: mapRef.current,
+        style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
+        center: [selectedLocation.longitude, selectedLocation.latitude],
+        zoom: 9
+      });
+      const el = document.createElement('div');
+      el.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;width:20px;height:20px;"><span style="position:absolute;width:20px;height:20px;border-radius:50%;background:#2874f033;animation:ping 1.5s infinite"></span><span style="width:10px;height:10px;border-radius:50%;background:#2874f0;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)"></span></span>`;
+      new maplibregl.Marker({ element: el }).setLngLat([selectedLocation.longitude, selectedLocation.latitude]).addTo(map);
+      mapInstance.current = map;
+      return () => map.remove();
+    } catch (err) {
+      console.warn('Could not initialize map canvas:', err);
+    }
   }, [selectedLocation]);
 
   const outlookData = [
@@ -50,17 +54,17 @@ export const OverviewPage: React.FC = () => {
   ];
 
   /* ── Dynamic Hazard Card configuration from live API / Risk Engine ── */
-  const tsScore = riskPrediction?.thunderstorm_risk.risk_score ?? 68;
-  const cbScore = riskPrediction?.cloudburst_risk.risk_score ?? 54;
-  const ffScore = riskPrediction?.flash_flood_risk.risk_score ?? 41;
+  const tsScore = riskPrediction?.thunderstorm_risk?.risk_score ?? 68;
+  const cbScore = riskPrediction?.cloudburst_risk?.risk_score ?? 54;
+  const ffScore = riskPrediction?.flash_flood_risk?.risk_score ?? 41;
 
-  const tsSev = riskPrediction?.thunderstorm_risk.severity ?? 'ELEVATED';
-  const cbSev = riskPrediction?.cloudburst_risk.severity ?? 'MODERATE';
-  const ffSev = riskPrediction?.flash_flood_risk.severity ?? 'WATCH';
+  const tsSev = riskPrediction?.thunderstorm_risk?.severity ?? 'ELEVATED';
+  const cbSev = riskPrediction?.cloudburst_risk?.severity ?? 'MODERATE';
+  const ffSev = riskPrediction?.flash_flood_risk?.severity ?? 'WATCH';
 
-  const tsTrend = riskPrediction?.thunderstorm_risk.trend === 'INCREASING' ? 'up' : 'stable';
-  const cbTrend = riskPrediction?.cloudburst_risk.trend === 'INCREASING' ? 'up' : 'stable';
-  const ffTrend = riskPrediction?.flash_flood_risk.trend === 'INCREASING' ? 'up' : 'stable';
+  const tsTrend = riskPrediction?.thunderstorm_risk?.trend === 'INCREASING' ? 'up' : 'stable';
+  const cbTrend = riskPrediction?.cloudburst_risk?.trend === 'INCREASING' ? 'up' : 'stable';
+  const ffTrend = riskPrediction?.flash_flood_risk?.trend === 'INCREASING' ? 'up' : 'stable';
 
   const hazards = [
     { name: 'Thunderstorm', score: tsScore, level: tsSev, icon: Zap,         color: '#ff9f00', bg: '#fff8e1', trend: tsTrend },
@@ -72,9 +76,9 @@ export const OverviewPage: React.FC = () => {
     { label: 'CAPE',       value: '1,420', unit: 'J/kg',  note: 'Elevated',    color: '#ff9f00' },
     { label: 'CIN',        value: '−38',   unit: 'J/kg',  note: 'Low Inhibition', color: '#388e3c' },
     { label: 'IWV',        value: '46.8',  unit: 'kg/m²', note: 'Moist Column', color: '#2874f0' },
-    { label: 'Cloud Cover',value: String(weather?.current.cloud_cover_pct ?? 92), unit: '%', note: 'Dense Overcast', color: '#878787' },
-    { label: 'Wind Gust',  value: String(weather?.current.wind_gusts_kmh ?? 38), unit: 'km/h', note: 'Gusty Surface', color: '#ff9f00' },
-    { label: 'Rain Intensity', value: String(weather?.current.precipitation_mm ?? 12.8), unit: 'mm/h', note: (weather?.current.precipitation_mm ?? 0) > 0 ? 'Active Rain' : 'Normal', color: '#ff6161' },
+    { label: 'Cloud Cover',value: String(weather?.current?.cloud_cover_pct ?? 92), unit: '%', note: 'Dense Overcast', color: '#878787' },
+    { label: 'Wind Gust',  value: String(weather?.current?.wind_gusts_kmh ?? 38), unit: 'km/h', note: 'Gusty Surface', color: '#ff9f00' },
+    { label: 'Rain Intensity', value: String(weather?.current?.precipitation_mm ?? 12.8), unit: 'mm/h', note: (weather?.current?.precipitation_mm ?? 0) > 0 ? 'Active Rain' : 'Normal', color: '#ff6161' },
   ];
 
   return (
